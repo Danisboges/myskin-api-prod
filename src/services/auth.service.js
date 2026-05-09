@@ -3,12 +3,12 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const registerUser = async (userData) => {
-  const { name, email, password, role } = userData;
+  const { name, email, password, phone, role, gender, birthDate } = userData;
   const hashedPassword = await bcrypt.hash(password, 10);
 
   return await prisma.user.create({
-    data: { name, email, password: hashedPassword, role: role || 'user' },
-    select: { id: true, name: true, email: true, role: true }
+    data: { name, email, password: hashedPassword, phone, role: role || 'user', gender, birthDate },
+    select: { id: true, name: true, email: true, role: true, phone: true, gender: true, birthDate: true, createdAt: true }
   });
 };
 

@@ -6,8 +6,8 @@ const createDetection = async (userId, filePath, complaint) => {
       userId: userId,
       imageUrl: filePath,
       result: "Malignant (Simulation)", // Contoh hasil dummy
-      confidence: 0.85,
-      complaint: complaint                // Contoh skor dummy
+      confidence: 0.85, // Contoh skor dummy
+      complaint: complaint                
     }
   });
 };

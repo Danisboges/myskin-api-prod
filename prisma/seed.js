@@ -26,7 +26,10 @@ async function main() {
       email: 'admin@mail.com',
       name: 'Admin Melanoma',
       password: hashedPassword,
+      phone: '081234567890',
       role: 'admin',
+      gender: 'male',
+      birthDate: new Date("1990-01-01T00:00:00Z"),
     },
   });
 
