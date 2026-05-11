@@ -25,6 +25,67 @@ enum ConsultationStatus {
   CLOSED
 }
 
+// 3. Definisi Status Case Review Dokter
+enum CaseReviewStatus {
+  pending_review
+  approved
+  rejected
+  under_review
+}
+
+// 4. Definisi Tipe Notifikasi
+enum NotificationType {
+  case_request
+  scan_complete
+  verification_alert
+  system_message
+}
+
+// 5. Definisi Visibility Data
+enum DataVisibility {
+  restricted_clinical_team_only
+  restricted_self_only
+  shared_with_clinic
+}
+
+// 6. Definisi Status User
+enum UserStatus {
+  active
+  pending
+  suspended
+  inactive
+}
+
+// 7. Definisi Action Audit Log
+enum AuditAction {
+  CREATE_USER
+  UPDATE_USER
+  DELETE_USER
+  CHANGE_USER_ROLE
+  CHANGE_USER_STATUS
+  RESET_PASSWORD
+  APPROVE_DOCTOR
+  REJECT_DOCTOR
+  UPDATE_SYSTEM_SETTINGS
+  GENERATE_REPORT
+}
+
+// 8. Definisi Log Severity
+enum LogSeverity {
+  critical
+  warning
+  info
+}
+
+// 9. Definisi Log Category
+enum LogCategory {
+  infrastructure
+  ai_engine
+  user_management
+  security
+  system
+}
+
 model User {
   id        String   @id @default(uuid())
   name      String
@@ -34,6 +95,8 @@ model User {
   role      Role     @default(patient)
   gender    Gender
   birthDate DateTime?
+  status    UserStatus @default(active)
+  avatarUrl String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -42,6 +105,10 @@ model User {
   patientConsultations Consultation[] @relation("PatientToConsultation")
   doctorConsultations  Consultation[] @relation("DoctorToConsultation")
   messages             ChatMessage[]
+  doctorProfile        DoctorProfile?
+  adminSettings        AdminSettings?
+  adminNotifications   AdminNotification[]
+  auditLogs            AuditLog[]
 }
 
 model Detection {
@@ -94,4 +161,241 @@ model ChatMessage {
   // Relasi ke Pengirim (Bisa Dokter atau Pasien)
   senderId       String
   sender         User         @relation(fields: [senderId], references: [id])
+}
+
+// ==================== DOCTOR DASHBOARD MODELS ====================
+
+// 6. Profil Dokter - Extended User Profile
+model DoctorProfile {
+  id                  String     @id @default(uuid())
+  userId              String     @unique
+  user                User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Doctor-specific fields
+  doctorId            String     @unique // Format: MS-XXXX
+  profileImageUrl     String?
+  verificationStatus  String     @default("unverified") // unverified, pending, verified
+  practitionerLicense String?    // Medical license number
+  specialization      String     @default("Dermatology")
+  
+  joinedAt            DateTime   @default(now())
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  
+  // Relasi
+  caseReviews         CaseReview[]
+  observations        DoctorObservation[]
+  settings            DoctorSettings?
+  notifications       Notification[]
+  caseAssignments     CaseAssignment[]
+}
+
+// 7. Case Review - Track doctor review of AI predictions
+model CaseReview {
+  id                      String              @id @default(uuid())
+  caseId                  String              @unique // Format: SK-XXXX
+  
+  // Patient Information
+  patientId               String
+  patientName             String
+  patientAge              Int
+  patientGender           String
+  
+  // Clinical Image Information
+  clinicalImageUrl        String
+  zoom                    String?             @default("4.0x")
+  light                   String?             @default("Polarized")
+  bodySite                String?
+  
+  // AI Prediction
+  aiConfidence            String              @default("MEDIUM CONFIDENCE") // HIGH, MEDIUM, LOW
+  aiPredictionLabel       String              // Primary AI prediction
+  aiConfidencePercentage  Float               // Main prediction percentage
+  alternativePredictions  String?             @db.Text // JSON array of alternatives
+  
+  // Patient Notes
+  patientNotes            String?             @db.Text
+  
+  // Doctor Review
+  doctorId                String?
+  doctor                  DoctorProfile?      @relation(fields: [doctorId], references: [id], onDelete: SetNull)
+  
+  physicianObservation    String?             @db.Text
+  finalDiagnosis          String?
+  reviewStatus            CaseReviewStatus    @default(pending_review)
+  
+  // Rejection/Approval reason
+  rejectionReason         String?             @db.Text
+  
+  receivedAt              DateTime            @default(now())
+  reviewedAt              DateTime?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  
+  // Relasi
+  observations            DoctorObservation[]
+}
+
+// 8. Doctor Observation - Track doctor notes on cases
+model DoctorObservation {
+  id                      String              @id @default(uuid())
+  caseReviewId            String
+  caseReview              CaseReview          @relation(fields: [caseReviewId], references: [id], onDelete: Cascade)
+  
+  doctorId                String
+  doctor                  DoctorProfile       @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  
+  observation             String              @db.Text
+  
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+}
+
+// 9. Case Assignment - Track which cases are assigned to which doctors
+model CaseAssignment {
+  id                      String              @id @default(uuid())
+  doctorId                String
+  doctor                  DoctorProfile       @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  
+  caseId                  String
+  
+  assignedAt              DateTime            @default(now())
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  
+  @@unique([doctorId, caseId])
+}
+
+// 10. Doctor Settings - User preferences and system settings
+model DoctorSettings {
+  id                      String              @id @default(uuid())
+  doctorId                String              @unique
+  doctor                  DoctorProfile       @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  
+  // Account Settings
+  twoFactorEnabled        Boolean             @default(false)
+  
+  // Notification Settings
+  emailNotifications      Boolean             @default(true)
+  verificationAlerts      Boolean             @default(true)
+  
+  // Privacy Settings
+  dataVisibility          DataVisibility      @default(restricted_clinical_team_only)
+  
+  // Preferences
+  language                String              @default("English (US)")
+  
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+}
+
+// 11. Notification - Doctor notifications
+model Notification {
+  id                      String              @id @default(uuid())
+  doctorId                String
+  doctor                  DoctorProfile       @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  
+  notificationId          String              @unique // Format: N-XXXX
+  title                   String
+  message                 String              @db.Text
+  type                    NotificationType    @default(system_message)
+  
+  isRead                  Boolean             @default(false)
+  
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+}
+
+// ==================== ADMIN MANAGEMENT MODELS ====================
+
+// 12. Admin Settings - Settings untuk admin user
+model AdminSettings {
+  id                      String              @id @default(uuid())
+  adminId                 String              @unique
+  admin                   User                @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  
+  // Account Settings
+  twoFactorEnabled        Boolean             @default(false)
+  
+  // Notification Settings
+  emailNotifications      Boolean             @default(true)
+  verificationAlerts      Boolean             @default(true)
+  
+  // Privacy Settings
+  dataVisibility          DataVisibility      @default(restricted_clinical_team_only)
+  
+  // Preferences
+  language                String              @default("English (US)")
+  
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+}
+
+// 13. Admin Notification - Notifikasi untuk admin
+model AdminNotification {
+  id                      String              @id @default(uuid())
+  adminId                 String
+  admin                   User                @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  
+  notificationId          String              @unique // Format: N-XXXX
+  title                   String
+  message                 String              @db.Text
+  type                    String              // doctor_approval, system_warning, user_management, etc
+  
+  isRead                  Boolean             @default(false)
+  
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  
+  @@index([adminId, isRead])
+}
+
+// 14. Audit Log - Track admin activities
+model AuditLog {
+  id                      String              @id @default(uuid())
+  auditId                 String              @unique // Format: AUD-XXXX
+  
+  // Admin Information
+  adminId                 String
+  admin                   User                @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  adminName               String
+  
+  // Action Details
+  action                  AuditAction
+  description             String              @db.Text
+  targetUserId            String?             // ID of affected user
+  targetResourceType      String?             // Type of resource affected
+  targetResourceId        String?             // ID of affected resource
+  
+  // Request Details
+  ipAddress               String?
+  userAgent               String?
+  
+  // Status
+  status                  String              @default("success") // success, failed
+  
+  createdAt               DateTime            @default(now())
+  
+  @@index([adminId, createdAt])
+  @@index([action, createdAt])
+}
+
+// 15. System Log - System activity logs
+model SystemLog {
+  id                      String              @id @default(uuid())
+  logId                   String              @unique // Format: LOG-XXXX
+  
+  // Log Information
+  title                   String
+  description             String              @db.Text
+  severity                LogSeverity
+  category                LogCategory
+  
+  // Additional Data
+  metadata                String?             @db.Text // JSON metadata
+  
+  createdAt               DateTime            @default(now())
+  
+  @@index([severity, createdAt])
+  @@index([category, createdAt])
 }
