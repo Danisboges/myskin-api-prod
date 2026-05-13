@@ -67,6 +67,7 @@ const getSystemLogs = async (req, res) => {
   }
 };
 
+<<<<<<< Updated upstream
 const getReportStatistics = async (startDate, endDate) => {
   // Ubah string tanggal menjadi Date object
   const start = new Date(startDate);
@@ -125,6 +126,25 @@ const getReportStatistics = async (startDate, endDate) => {
     completedConsultations,
     avgConfidence
   };
+=======
+const getReportStatistics = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        status: "error",
+        message: "startDate and endDate are required"
+      });
+    }
+
+    const stats = await adminService.getReportStatistics(startDate, endDate);
+    res.status(200).json({ status: "success", data: stats });
+  } catch (err) {
+    console.error("Error getting report statistics:", err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+>>>>>>> Stashed changes
 };
 
 const generateReport = async (req, res) => {

@@ -56,5 +56,20 @@ const isDoctor = (req, res, next) => {
   next();
 };
 
+<<<<<<< Updated upstream
 // Pastikan nama di sini sesuai dengan yang akan di-import di route
 module.exports = { verifyToken, isAdmin, isAdminOrDoctor, isDoctor };
+=======
+const isPatient = (req, res, next) => {
+  if (!req.user || req.user.role !== "patient") {
+    return res.status(403).json({
+      status: "error",
+      message: "Akses ditolak. Endpoint ini hanya untuk Pasien."
+    });
+  }
+  next();
+};
+
+// Pastikan nama di sini sesuai dengan yang akan di-import di route
+module.exports = { verifyToken, isAdmin, isAdminOrDoctor, isDoctor, isPatient };
+>>>>>>> Stashed changes

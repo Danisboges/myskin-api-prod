@@ -8,6 +8,10 @@ const detectionRoutes = require('./src/routes/detection.route');
 const userManagementRoutes = require("./src/routes/userManagement.route");
 const doctorRoutes = require('./src/routes/doctor.route');
 const adminRoutes = require('./src/routes/admin.route');
+<<<<<<< Updated upstream
+=======
+const patientRoutes = require('./src/routes/patient.route');
+>>>>>>> Stashed changes
 
 const app = express();
 
@@ -46,6 +50,10 @@ app.use('/api/detection', detectionRoutes);
 app.use("/api/user", userManagementRoutes);
 app.use('/api/v1/doctor', doctorRoutes);
 app.use('/api/v1/admin', adminRoutes);
+<<<<<<< Updated upstream
+=======
+app.use('/api/v1/patient', patientRoutes);
+>>>>>>> Stashed changes
 
 // 6. 404 HANDLER (Jika route tidak ditemukan)
 app.use((req, res) => {

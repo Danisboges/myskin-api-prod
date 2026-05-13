@@ -4,10 +4,10 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  //url      = env("DATABASE_URL")
+  // Hapus url = env("DATABASE_URL") di sini
 }
 
-// 1. Definisi Role User
+// ==================== ENUMS ====================
 enum Role {
   admin
   doctor
@@ -19,19 +19,26 @@ enum Gender {
   female
 }
 
+<<<<<<< Updated upstream
 // 2. Definisi Status Konsultasi
+=======
+>>>>>>> Stashed changes
 enum ConsultationStatus {
   OPEN
   CLOSED
 }
 
+<<<<<<< Updated upstream
 // 3. Definisi Status Case Review Dokter
+=======
+>>>>>>> Stashed changes
 enum CaseReviewStatus {
   pending_review
   approved
   rejected
   under_review
 }
+<<<<<<< Updated upstream
 
 // 4. Definisi Tipe Notifikasi
 enum NotificationType {
@@ -99,70 +106,227 @@ model User {
   avatarUrl String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+=======
+>>>>>>> Stashed changes
 
-  // Relasi
-  detections           Detection[]
+enum NotificationType {
+  case_request
+  scan_complete
+  verification_alert
+  system_message
+}
+
+enum DataVisibility {
+  restricted_clinical_team_only
+  restricted_self_only
+  shared_with_clinic
+}
+
+enum UserStatus {
+  active
+  pending
+  suspended
+  inactive
+}
+
+enum AuditAction {
+  CREATE_USER
+  UPDATE_USER
+  DELETE_USER
+  CHANGE_USER_ROLE
+  CHANGE_USER_STATUS
+  RESET_PASSWORD
+  APPROVE_DOCTOR
+  REJECT_DOCTOR
+  UPDATE_SYSTEM_SETTINGS
+  GENERATE_REPORT
+}
+
+enum LogSeverity {
+  critical
+  warning
+  info
+}
+
+enum LogCategory {
+  infrastructure
+  ai_engine
+  user_management
+  security
+  system
+}
+model User {
+  id        String     @id @default(uuid())
+  name      String
+  email     String     @unique
+  password  String
+  phone     String?
+  role      Role       @default(patient)
+  gender    Gender
+  birthDate DateTime?
+  status    UserStatus @default(active)
+  avatarUrl String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  // Relasi Profil
+  doctorProfile      DoctorProfile?
+  patientProfile     PatientProfile?
+  adminSettings      AdminSettings?
+  
+  // Relasi Logika
   patientConsultations Consultation[] @relation("PatientToConsultation")
   doctorConsultations  Consultation[] @relation("DoctorToConsultation")
   messages             ChatMessage[]
+<<<<<<< Updated upstream
   doctorProfile        DoctorProfile?
   adminSettings        AdminSettings?
+=======
+>>>>>>> Stashed changes
   adminNotifications   AdminNotification[]
   auditLogs            AuditLog[]
 }
 
-model Detection {
-  id          String   @id @default(uuid())
-  imageUrl    String   // URL gambar dari Cloudinary/S3/Local
-  complaint   String   @db.Text // Keluhan dari pasien
-  result      String   // Hasil AI (Melanoma/Benign)
-  confidence  Float    // Skor akurasi AI
-  createdAt   DateTime @default(now())
+// ==================== DOCTOR DOMAIN ====================
 
-  // Relasi ke User (Pasien)
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+model DoctorProfile {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  clinicId            String?    
+  verificationStatus  String   @default("unverified") // unverified, pending, verified
+  practitionerLicense String?  
+  specialization      String   @default("Dermatology")
+  
+  joinedAt            DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relasi
+  caseReviews         CaseReview[]
+  observations        DoctorObservation[]
+  settings            DoctorSettings?
+  notifications       Notification[]
+  caseAssignments     CaseAssignment[]
+}
 
-  // Relasi 1-ke-1 ke Konsultasi (Satu deteksi bisa memicu satu sesi konsultasi)
-  consultation Consultation?
+model DoctorSettings {
+  id                 String         @id @default(uuid())
+  doctorId           String         @unique
+  doctor             DoctorProfile  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  twoFactorEnabled   Boolean        @default(false)
+  emailNotifications Boolean        @default(true)
+  verificationAlerts Boolean        @default(true)
+  dataVisibility     DataVisibility @default(restricted_clinical_team_only)
+  language           String         @default("English (US)")
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+}
+
+// ==================== PATIENT DOMAIN ====================
+
+model PatientProfile {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  medicalHistory String?  @db.Text 
+  allergies      String?  @db.Text 
+  medications    String?  @db.Text 
+  familyHistory  String?  @db.Text 
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  // Relasi
+  scans                Scan[]
+  verificationRequests VerificationRequest[]
+  settings             PatientSettings?
+  notifications        PatientNotification[]
+}
+
+model PatientSettings {
+  id                  String         @id @default(uuid())
+  patientId           String         @unique
+  patient             PatientProfile @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  twoFactorEnabled    Boolean        @default(false)
+  emailNotifications  Boolean        @default(true)
+  scanNotifications   Boolean        @default(true)
+  reportNotifications Boolean        @default(true)
+  dataVisibility      DataVisibility @default(restricted_self_only)
+  language            String         @default("English (US)")
+  theme               String         @default("light")
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+}
+
+// ==================== CORE BUSINESS LOGIC (SCAN & CONSULTATION) ====================
+
+// Ini adalah gabungan dari fitur Detection lama dan Scan baru
+model Scan {
+  id                 String   @id @default(uuid())
+  scanId             String   @unique @default(uuid()) // Identifier unik scan
+  
+  patientId          String
+  patient            PatientProfile @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
+  imageUrl           String   // URL gambar dari Cloudinary/S3
+  complaint          String?  @db.Text // Keluhan awal pasien
+  bodySite           String?  
+  notes              String?  @db.Text
+  
+  // Hasil AI Engine
+  isAnalyzed         Boolean  @default(false)
+  aiPrediction       String?  // Melanoma/Benign
+  aiConfidence       Float?   // Skor akurasi AI (0-1 atau persentase)
+  aiDetails          String?  @db.Text // Metadata AI tambahan
+  analyzeCompletedAt DateTime?
+  
+  // Izin Sharing ke Dokter
+  isSharedWithDoctor Boolean  @default(false)
+  sharedWith         String?  @db.Text // JSON list dokter ID yang boleh akses
+  
+  uploadedAt         DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Alur Lanjutan
+  consultation       Consultation?
+  caseReview         CaseReview?
+  reports            Report[]
 }
 
 model Consultation {
   id          String             @id @default(uuid())
   status      ConsultationStatus @default(OPEN)
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-
-  // Relasi ke Detection
-  detectionId String             @unique
-  detection   Detection          @relation(fields: [detectionId], references: [id])
-
-  // Relasi ke Pasien
+  
+  // Terhubung ke Scan, bukan lagi Detection
+  scanId      String             @unique
+  scan        Scan               @relation(fields: [scanId], references: [id])
+  
   patientId   String
   patient     User               @relation("PatientToConsultation", fields: [patientId], references: [id])
-
-  // Relasi ke Dokter
   doctorId    String
   doctor      User               @relation("DoctorToConsultation", fields: [doctorId], references: [id])
-
-  // Relasi ke Pesan Chat
+  
   messages    ChatMessage[]
+  
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
 }
 
 model ChatMessage {
   id             String       @id @default(uuid())
   message        String       @db.Text
   timestamp      DateTime     @default(now())
-
-  // Relasi ke Sesi Konsultasi
   consultationId String
-  consultation   Consultation @relation(fields: [consultationId], references: [id])
-
-  // Relasi ke Pengirim (Bisa Dokter atau Pasien)
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
   senderId       String
   sender         User         @relation(fields: [senderId], references: [id])
 }
 
+<<<<<<< Updated upstream
 // ==================== DOCTOR DASHBOARD MODELS ====================
 
 // 6. Profil Dokter - Extended User Profile
@@ -398,4 +562,180 @@ model SystemLog {
   
   @@index([severity, createdAt])
   @@index([category, createdAt])
+=======
+// ==================== DOCTOR REVIEW & REPORTS ====================
+
+model CaseReview {
+  id                   String           @id @default(uuid())
+  caseId               String           @unique @default(uuid())
+  
+  scanId               String           @unique
+  scan                 Scan             @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  
+  // Data Clinical Tambahan Dokter
+  zoom                 String?          @default("4.0x")
+  light                String?          @default("Polarized")
+  
+  doctorId             String?
+  doctor               DoctorProfile?   @relation(fields: [doctorId], references: [id], onDelete: SetNull)
+  
+  physicianObservation String?          @db.Text
+  finalDiagnosis       String?
+  reviewStatus         CaseReviewStatus @default(pending_review)
+  rejectionReason      String?          @db.Text
+  
+  receivedAt           DateTime         @default(now())
+  reviewedAt           DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  
+  observations         DoctorObservation[]
+}
+
+model DoctorObservation {
+  id           String        @id @default(uuid())
+  caseReviewId String
+  caseReview   CaseReview    @relation(fields: [caseReviewId], references: [id], onDelete: Cascade)
+  doctorId     String
+  doctor       DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  observation  String        @db.Text
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Report {
+  id                 String   @id @default(uuid())
+  reportId           String   @unique @default(uuid())
+  
+  scanId             String
+  scan               Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  patientId          String
+  
+  title              String
+  description        String?  @db.Text
+  diagnosis          String   
+  recommendation     String?  @db.Text 
+  pdfUrl             String?  
+  
+  status             String   @default("draft") 
+  approvedByDoctorId String?
+  approvedAt         DateTime?
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  
+  @@index([patientId, createdAt])
+}
+
+// ==================== NOTIFICATIONS & ADMIN ====================
+
+model Notification {
+  id             String           @id @default(uuid())
+  doctorId       String
+  doctor         DoctorProfile    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  notificationId String           @unique @default(uuid())
+  title          String
+  message        String           @db.Text
+  type           NotificationType @default(system_message)
+  isRead         Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model PatientNotification {
+  id             String         @id @default(uuid())
+  patientId      String
+  patient        PatientProfile @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  notificationId String         @unique @default(uuid())
+  title          String
+  message        String         @db.Text
+  type           String         
+  isRead         Boolean        @default(false)
+  readAt         DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model VerificationRequest {
+  id                 String         @id @default(uuid())
+  requestId          String         @unique @default(uuid())
+  patientId          String
+  patient            PatientProfile @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  message            String?        @db.Text
+  assignedDoctorId   String?
+  assignedDoctorName String?
+  status             String         @default("pending")
+  submittedAt        DateTime       @default(now())
+  completedAt        DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+}
+
+model AdminSettings {
+  id                 String         @id @default(uuid())
+  adminId            String         @unique
+  admin              User           @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  twoFactorEnabled   Boolean        @default(false)
+  emailNotifications Boolean        @default(true)
+  verificationAlerts Boolean        @default(true)
+  dataVisibility     DataVisibility @default(restricted_clinical_team_only)
+  language           String         @default("English (US)")
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+}
+
+model AdminNotification {
+  id             String   @id @default(uuid())
+  adminId        String
+  admin          User     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  notificationId String   @unique @default(uuid())
+  title          String
+  message        String   @db.Text
+  type           String   
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  @@index([adminId, isRead])
+}
+
+model AuditLog {
+  id                 String      @id @default(uuid())
+  auditId            String      @unique @default(uuid())
+  adminId            String
+  admin              User        @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  adminName          String
+  action             AuditAction
+  description        String      @db.Text
+  targetUserId       String?
+  targetResourceType String?
+  targetResourceId   String?
+  ipAddress          String?
+  userAgent          String?
+  status             String      @default("success")
+  createdAt          DateTime    @default(now())
+  @@index([adminId, createdAt])
+}
+
+model SystemLog {
+  id          String      @id @default(uuid())
+  logId       String      @unique @default(uuid())
+  title       String
+  description String      @db.Text
+  severity    LogSeverity
+  category    LogCategory
+  metadata    String?     @db.Text
+  createdAt   DateTime    @default(now())
+  @@index([severity, createdAt])
+}
+
+model CaseAssignment {
+  id         String        @id @default(uuid())
+  doctorId   String
+  doctor     DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  caseId     String
+  assignedAt DateTime      @default(now())
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  @@unique([doctorId, caseId])
+>>>>>>> Stashed changes
 }

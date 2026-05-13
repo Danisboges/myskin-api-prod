@@ -1,21 +1,23 @@
-const { PrismaClient } = require('@prisma/client');
-const { PrismaPg } = require('@prisma/adapter-pg');
-const { Pool } = require('pg');
-const bcrypt = require('bcryptjs');
 require('dotenv').config();
+const { Pool } = require('pg');
+const { PrismaPg } = require('@prisma/adapter-pg');
+const { PrismaClient } = require('@prisma/client');
 
-// 1. Setup koneksi pool
+// 1. Buat koneksi pool menggunakan pg
 const pool = new Pool({ 
   connectionString: process.env.DATABASE_URL 
 });
+
+// 2. Hubungkan pool ke Prisma Adapter
 const adapter = new PrismaPg(pool);
 
-// 2. Inisialisasi Client dengan adapter (WAJIB di Prisma 7)
+// 3. Masukkan adapter ke PrismaClient
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  const hashedPassword = await bcrypt.hash('password123', 10);
+  console.log('Memulai proses seeding...');
 
+<<<<<<< Updated upstream
   console.log('Sedang mengisi data...');
 
   // ==================== CREATE ADMIN USER ====================
@@ -282,6 +284,21 @@ async function main() {
   }
 
   console.log('✅ Seeding selesai!');
+=======
+  const admin = await prisma.user.upsert({
+    where: { email: 'admin@melanoma.com' },
+    update: {},
+    create: {
+      email: 'admin@melanoma.com',
+      name: 'Super Admin',
+      password: 'password_hash_disini', // Ganti dengan hash bcrypt
+      role: 'admin',
+      gender: 'male',
+    },
+  });
+
+  console.log('Seeding selesai. User Admin dibuat:', admin.email);
+>>>>>>> Stashed changes
 }
 
 main()
@@ -289,7 +306,11 @@ main()
     await prisma.$disconnect();
   })
   .catch(async (e) => {
+<<<<<<< Updated upstream
     console.error('❌ Error during seeding:', e);
+=======
+    console.error('Error saat seeding:', e);
+>>>>>>> Stashed changes
     await prisma.$disconnect();
     process.exit(1);
   });

@@ -22,7 +22,11 @@ const getDashboardSummary = async () => {
       usersPrevMonth, 
       activeSessionsData, 
       accuracyData,
+<<<<<<< Updated upstream
       totalDetections
+=======
+      totalScans
+>>>>>>> Stashed changes
     ] = await Promise.all([
       // 1. Total User & Growth Data
       prisma.user.count(),
@@ -35,6 +39,7 @@ const getDashboardSummary = async () => {
         distinct: ["patientId"],
       }),
 
+<<<<<<< Updated upstream
       // 3. Rata-rata Akurasi Deteksi
       prisma.detection.aggregate({
         _avg: { confidence: true },
@@ -42,6 +47,15 @@ const getDashboardSummary = async () => {
 
       // 4. Hitung jumlah deteksi untuk estimasi storage lokal
       prisma.detection.count()
+=======
+      // 3. Rata-rata Akurasi Deteksi (dari Scan, bukan Detection)
+      prisma.scan.aggregate({
+        _avg: { aiConfidence: true },
+      }),
+
+      // 4. Hitung jumlah scan untuk estimasi storage lokal
+      prisma.scan.count()
+>>>>>>> Stashed changes
     ]);
 
     // LOGIKA PERHITUNGAN GROWTH
@@ -57,7 +71,11 @@ const getDashboardSummary = async () => {
      */
     
     // Estimasi Lokal (Dev Mode)
+<<<<<<< Updated upstream
     const estimatedMB = totalDetections * 0.5; // Asumsi 1 gambar = 500KB
+=======
+    const estimatedMB = totalScans * 0.5; // Asumsi 1 gambar = 500KB
+>>>>>>> Stashed changes
     const limitMB = 5120; // Contoh limit 5GB
 
     const storageUsage = {
@@ -71,8 +89,13 @@ const getDashboardSummary = async () => {
       totalUsersGrowth: parseFloat(totalUsersGrowth.toFixed(1)),
       activeSessions: activeSessionsData.length,
       storageUsage, // <--- Siap diganti data asli setelah deploy
+<<<<<<< Updated upstream
       averageDetectionAccuracy: accuracyData._avg.confidence 
         ? parseFloat((accuracyData._avg.confidence * 100).toFixed(1)) 
+=======
+      averageDetectionAccuracy: accuracyData._avg.aiConfidence 
+        ? parseFloat((accuracyData._avg.aiConfidence * 100).toFixed(1)) 
+>>>>>>> Stashed changes
         : 96.4,
       accuracyGrowth: 0.2, 
     };
@@ -290,24 +313,43 @@ const getReportStatistics = async (startDate, endDate) => {
       where: { role: 'patient', ...dateFilter }
     }),
     
+<<<<<<< Updated upstream
     // B. Hitung Total Deteksi (Scans)
     prisma.detection.count({
+=======
+    // B. Hitung Total Deteksi (Scans) - Gunakan Scan bukan Detection
+    prisma.scan.count({
+>>>>>>> Stashed changes
       where: dateFilter
     }),
 
     // C. Hitung Kasus Risiko Tinggi (Sesuai komentar schema: result "Melanoma")
+<<<<<<< Updated upstream
     prisma.detection.count({
       where: { 
         // Ubah string ini jika AI kamu mengembalikan nilai yang berbeda (misal: "Malignant")
         result: { contains: 'Melanoma', mode: 'insensitive' }, 
+=======
+    // Gunakan Scan dengan aiPrediction bukan Detection dengan result
+    prisma.scan.count({
+      where: { 
+        aiPrediction: { contains: 'Melanoma', mode: 'insensitive' }, 
+>>>>>>> Stashed changes
         ...dateFilter 
       } 
     }),
 
     // D. Hitung Kasus Risiko Rendah (Sesuai komentar schema: result "Benign")
+<<<<<<< Updated upstream
     prisma.detection.count({
       where: { 
         result: { contains: 'Benign', mode: 'insensitive' }, 
+=======
+    // Gunakan Scan dengan aiPrediction bukan Detection dengan result
+    prisma.scan.count({
+      where: { 
+        aiPrediction: { contains: 'Benign', mode: 'insensitive' }, 
+>>>>>>> Stashed changes
         ...dateFilter 
       }
     }),
@@ -317,9 +359,15 @@ const getReportStatistics = async (startDate, endDate) => {
       where: { status: 'CLOSED', ...dateFilter }
     }),
 
+<<<<<<< Updated upstream
     // F. Hitung Rata-rata Confidence (Akurasi AI)
     prisma.detection.aggregate({
       _avg: { confidence: true },
+=======
+    // F. Hitung Rata-rata Confidence (Akurasi AI) - Gunakan aiConfidence bukan confidence
+    prisma.scan.aggregate({
+      _avg: { aiConfidence: true },
+>>>>>>> Stashed changes
       where: dateFilter
     })
   ]);
@@ -330,7 +378,11 @@ const getReportStatistics = async (startDate, endDate) => {
     highRiskCases,
     lowRiskCases,
     completedConsultations,
+<<<<<<< Updated upstream
     avgConfidence: confidenceAgg._avg.confidence ? Math.round(confidenceAgg._avg.confidence) : 0
+=======
+    avgConfidence: confidenceAgg._avg.aiConfidence ? Math.round(confidenceAgg._avg.aiConfidence * 100) : 0
+>>>>>>> Stashed changes
   };
 };
 

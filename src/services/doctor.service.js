@@ -5,6 +5,7 @@ const prisma = require('../config/prisma');
 /**
  * Get doctor dashboard summary
  */
+<<<<<<< Updated upstream
 const getDashboardSummary = async (doctorId) => {
   try {
     const caseReviews = await prisma.caseReview.findMany({
@@ -33,6 +34,79 @@ const getDashboardSummary = async (doctorId) => {
     }).length;
     
     const growthPercentage = lastMonthCases > 0 ? Math.round(((thisMonthCases - lastMonthCases) / lastMonthCases) * 100) : 0;
+=======
+const getDashboardSummary = async (userId) => {
+  try {
+    // 1. Dapatkan doctor profile dari userId
+    const doctorProfile = await prisma.doctorProfile.findUnique({
+      where: { userId }
+    });
+
+    if (!doctorProfile) {
+      throw new Error('Doctor profile not found');
+    }
+
+    const doctorId = doctorProfile.id;
+
+    // 2. Hitung totalRequests dari tabel CaseAssignment
+    const totalRequests = await prisma.caseAssignment.count({
+      where: { doctorId }
+    });
+
+    // 3. Ambil data CaseReview untuk menghitung status dan akurasi AI
+    const caseReviews = await prisma.caseReview.findMany({
+      where: { doctorId },
+      include: {
+        scan: {
+          select: { aiConfidence: true }
+        }
+      }
+    });
+
+    // 4. Hitung pending dan completed dari CaseReview
+    const pendingReview = caseReviews.filter(c => c.reviewStatus === 'pending_review').length;
+    // Status selain 'pending_review' (seperti 'approved', 'rejected') dianggap selesai
+    const completedScans = caseReviews.filter(c => c.reviewStatus !== 'pending_review').length;
+
+    console.log("DEBUG getDashboardSummary - caseReviews:", caseReviews);
+    console.log("DEBUG getDashboardSummary - pendingReview:", pendingReview);
+    console.log("DEBUG getDashboardSummary - completedScans:", completedScans);
+
+    // 5. Hitung rata-rata akurasi AI
+    // Menggunakan opsional chaining (?.) untuk menghindari error jika scan tidak ada
+    const totalConfidence = caseReviews.reduce((sum, c) => sum + (c.scan?.aiConfidence || 0), 0);
+    const accuracy = caseReviews.length > 0 ? Math.round((totalConfidence / caseReviews.length) * 100) : 0;
+    
+    // 6. Hitung growth percentage berdasarkan CaseAssignment (Permintaan baru masuk)
+    const thisMonth = new Date();
+    thisMonth.setDate(1);
+    thisMonth.setHours(0, 0, 0, 0); // Set ke awal hari di tanggal 1 bulan ini
+    
+    const lastMonth = new Date(thisMonth);
+    lastMonth.setMonth(lastMonth.getMonth() - 1); // Set ke tanggal 1 bulan lalu
+    
+    // Optimasi Query: Menghitung langsung dari database, bukan di memori JS
+    const thisMonthCases = await prisma.caseAssignment.count({
+      where: {
+        doctorId,
+        createdAt: { gte: thisMonth }
+      }
+    });
+    
+    const lastMonthCases = await prisma.caseAssignment.count({
+      where: {
+        doctorId,
+        createdAt: {
+          gte: lastMonth,
+          lt: thisMonth
+        }
+      }
+    });
+    
+    const growthPercentage = lastMonthCases > 0 
+      ? Math.round(((thisMonthCases - lastMonthCases) / lastMonthCases) * 100) 
+      : (thisMonthCases > 0 ? 100 : 0); // Jika bulan lalu 0 tapi bulan ini ada, anggap 100% growth
+>>>>>>> Stashed changes
 
     return {
       totalRequests,
@@ -45,6 +119,7 @@ const getDashboardSummary = async (doctorId) => {
     throw new Error(`Failed to get dashboard summary: ${error.message}`);
   }
 };
+<<<<<<< Updated upstream
 
 /**
  * Get assigned cases for a doctor
@@ -53,6 +128,24 @@ const getAssignedCases = async (doctorId, filters = {}) => {
   try {
     const assignments = await prisma.caseAssignment.findMany({
       where: { doctorId },
+=======
+/**
+ * Get assigned cases for a doctor
+ */
+const getAssignedCases = async (userId, filters = {}) => {
+  try {
+    // Get doctor profile from userId
+    const doctorProfile = await prisma.doctorProfile.findUnique({
+      where: { userId }
+    });
+
+    if (!doctorProfile) {
+      throw new Error('Doctor profile not found');
+    }
+
+    const assignments = await prisma.caseAssignment.findMany({
+      where: { doctorId: doctorProfile.id },
+>>>>>>> Stashed changes
       include: {
         doctor: true
       }
@@ -62,6 +155,7 @@ const getAssignedCases = async (doctorId, filters = {}) => {
 
     const cases = await prisma.caseReview.findMany({
       where: {
+<<<<<<< Updated upstream
         id: { in: caseIds },
         reviewStatus: 'pending_review'
       },
@@ -73,6 +167,23 @@ const getAssignedCases = async (doctorId, filters = {}) => {
         patientGender: true,
         receivedAt: true,
         reviewStatus: true
+=======
+        caseId: { in: caseIds },
+        reviewStatus: 'pending_review'
+      },
+      include: {
+        scan: {
+          include: {
+            patient: {
+              include: {
+                user: {
+                  select: { name: true, gender: true, birthDate: true }
+                }
+              }
+            }
+          }
+        }
+>>>>>>> Stashed changes
       },
       orderBy: { receivedAt: 'desc' }
     });
@@ -80,12 +191,24 @@ const getAssignedCases = async (doctorId, filters = {}) => {
     // Map to expected format
     return cases.map(c => ({
       caseId: c.caseId,
+<<<<<<< Updated upstream
       patientName: c.patientName,
       patientAge: c.patientAge,
       patientGender: c.patientGender,
       receivedAt: c.receivedAt.toISOString(),
       status: c.reviewStatus,
       avatarUrl: `/uploads/patients/${c.patientName.toLowerCase().replace(/\s+/g, '-')}.png`
+=======
+      patientName: c.scan.patient.user.name,
+      patientAge: c.scan.patient.user.birthDate 
+        ? new Date().getFullYear() - new Date(c.scan.patient.user.birthDate).getFullYear()
+        : null,
+      patientGender: c.scan.patient.user.gender,
+      receivedAt: c.receivedAt.toISOString(),
+      status: c.reviewStatus,
+      scanImageUrl: c.scan.imageUrl,
+      avatarUrl: `/uploads/patients/${c.scan.patient.user.name.toLowerCase().replace(/\s+/g, '-')}.png`
+>>>>>>> Stashed changes
     }));
   } catch (error) {
     throw new Error(`Failed to get assigned cases: ${error.message}`);
@@ -98,13 +221,29 @@ const getAssignedCases = async (doctorId, filters = {}) => {
 const getCaseDetail = async (caseId) => {
   try {
     const caseReview = await prisma.caseReview.findUnique({
+<<<<<<< Updated upstream
       where: { caseId }
+=======
+      where: { caseId },
+      include: {
+        scan: {
+          include: {
+            patient: {
+              include: {
+                user: { select: { name: true, gender: true, birthDate: true } }
+              }
+            }
+          }
+        }
+      }
+>>>>>>> Stashed changes
     });
 
     if (!caseReview) {
       throw new Error('Case not found');
     }
 
+<<<<<<< Updated upstream
     // Parse alternative predictions
     let predictions = [];
     if (caseReview.alternativePredictions) {
@@ -120,10 +259,18 @@ const getCaseDetail = async (caseId) => {
       label: caseReview.aiPredictionLabel,
       percentage: caseReview.aiConfidencePercentage
     });
+=======
+    // Get patient age from birthDate
+    const patientBirthDate = caseReview.scan.patient.user.birthDate;
+    const patientAge = patientBirthDate 
+      ? new Date().getFullYear() - new Date(patientBirthDate).getFullYear()
+      : null;
+>>>>>>> Stashed changes
 
     return {
       caseId: caseReview.caseId,
       patient: {
+<<<<<<< Updated upstream
         id: caseReview.patientId,
         name: caseReview.patientName,
         age: caseReview.patientAge,
@@ -140,6 +287,26 @@ const getCaseDetail = async (caseId) => {
         predictions: predictions
       },
       patientNotes: caseReview.patientNotes,
+=======
+        id: caseReview.scan.patientId,
+        name: caseReview.scan.patient.user.name,
+        age: patientAge,
+        gender: caseReview.scan.patient.user.gender
+      },
+      clinicalImage: {
+        imageUrl: caseReview.scan.imageUrl,
+        zoom: caseReview.zoom || '4.0x',
+        light: caseReview.light || 'Polarized',
+        bodySite: caseReview.scan.bodySite || 'unspecified',
+        complaint: caseReview.scan.complaint
+      },
+      aiPrediction: {
+        confidence: caseReview.scan.aiConfidence || 0,
+        prediction: caseReview.scan.aiPrediction,
+        details: caseReview.scan.aiDetails
+      },
+      patientNotes: caseReview.scan.notes || 'No notes provided',
+>>>>>>> Stashed changes
       physicianObservation: caseReview.physicianObservation,
       status: caseReview.reviewStatus,
       receivedAt: caseReview.receivedAt.toISOString()
@@ -278,6 +445,7 @@ const rejectCase = async (caseId, doctorId, reason, physicianObservation, finalD
 /**
  * Get case history with filters and pagination
  */
+<<<<<<< Updated upstream
 const getCaseHistory = async (doctorId, filters = {}) => {
   try {
     const { search, diagnosis, status, startDate, endDate, page = 1, limit = 10 } = filters;
@@ -286,6 +454,23 @@ const getCaseHistory = async (doctorId, filters = {}) => {
       doctorId: (await prisma.doctorProfile.findUnique({
         where: { userId: doctorId }
       }))?.id,
+=======
+const getCaseHistory = async (userId, filters = {}) => {
+  try {
+    const { search, diagnosis, status, startDate, endDate, page = 1, limit = 10 } = filters;
+
+    // Get doctor profile from userId
+    const doctorProfile = await prisma.doctorProfile.findUnique({
+      where: { userId }
+    });
+
+    if (!doctorProfile) {
+      throw new Error('Doctor profile not found');
+    }
+
+    const whereClause = {
+      doctorId: doctorProfile.id,
+>>>>>>> Stashed changes
       reviewStatus: { not: 'pending_review' }
     };
 
@@ -309,7 +494,11 @@ const getCaseHistory = async (doctorId, filters = {}) => {
 
     if (search) {
       whereClause.OR = [
+<<<<<<< Updated upstream
         { patientName: { contains: search, mode: 'insensitive' } },
+=======
+        { scan: { patient: { user: { name: { contains: search, mode: 'insensitive' } } } } },
+>>>>>>> Stashed changes
         { caseId: { contains: search, mode: 'insensitive' } }
       ];
     }
@@ -318,6 +507,7 @@ const getCaseHistory = async (doctorId, filters = {}) => {
 
     const cases = await prisma.caseReview.findMany({
       where: whereClause,
+<<<<<<< Updated upstream
       select: {
         caseId: true,
         reviewedAt: true,
@@ -326,6 +516,18 @@ const getCaseHistory = async (doctorId, filters = {}) => {
         clinicalImageUrl: true,
         finalDiagnosis: true,
         reviewStatus: true
+=======
+      include: {
+        scan: {
+          include: {
+            patient: {
+              include: {
+                user: { select: { name: true } }
+              }
+            }
+          }
+        }
+>>>>>>> Stashed changes
       },
       skip: (page - 1) * limit,
       take: parseInt(limit),
@@ -337,11 +539,20 @@ const getCaseHistory = async (doctorId, filters = {}) => {
         caseId: c.caseId,
         date: c.reviewedAt ? c.reviewedAt.toISOString().split('T')[0] : null,
         patient: {
+<<<<<<< Updated upstream
           id: c.patientId,
           name: c.patientName
         },
         clinicalImageUrl: c.clinicalImageUrl,
         aiDiagnosis: c.finalDiagnosis,
+=======
+          id: c.scan.patientId,
+          name: c.scan.patient.user.name
+        },
+        clinicalImageUrl: c.scan.imageUrl,
+        aiPrediction: c.scan.aiPrediction,
+        finalDiagnosis: c.finalDiagnosis,
+>>>>>>> Stashed changes
         verificationStatus: c.reviewStatus
       })),
       meta: {
@@ -361,6 +572,7 @@ const getCaseHistory = async (doctorId, filters = {}) => {
 const getPatientEvolution = async (patientId) => {
   try {
     const cases = await prisma.caseReview.findMany({
+<<<<<<< Updated upstream
       where: { patientId },
       select: {
         id: true,
@@ -370,6 +582,19 @@ const getPatientEvolution = async (patientId) => {
         physicalObservation: true,
         createdAt: true,
         aiConfidencePercentage: true
+=======
+      where: { scan: { patientId } },
+      include: {
+        scan: {
+          include: {
+            patient: {
+              include: {
+                user: { select: { name: true, gender: true, birthDate: true } }
+              }
+            }
+          }
+        }
+>>>>>>> Stashed changes
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -378,6 +603,7 @@ const getPatientEvolution = async (patientId) => {
       throw new Error('Patient not found');
     }
 
+<<<<<<< Updated upstream
     const firstCase = await prisma.caseReview.findFirst({
       where: { patientId },
       orderBy: { createdAt: 'asc' }
@@ -392,17 +618,34 @@ const getPatientEvolution = async (patientId) => {
         patientGender: true
       }
     });
+=======
+    const firstCase = cases[cases.length - 1]; // Oldest case
+    const patient = cases[0].scan.patient;
+    const patientBirthDate = patient.user.birthDate;
+    const patientAge = patientBirthDate 
+      ? new Date().getFullYear() - new Date(patientBirthDate).getFullYear()
+      : null;
+>>>>>>> Stashed changes
 
     // Calculate growth percentage (simplified)
     let growthPercentage = 0;
     if (cases.length > 1) {
+<<<<<<< Updated upstream
       const firstConfidence = cases[cases.length - 1].aiConfidencePercentage;
       const lastConfidence = cases[0].aiConfidencePercentage;
       growthPercentage = Math.round(((lastConfidence - firstConfidence) / firstConfidence) * 100);
+=======
+      const firstConfidence = cases[cases.length - 1].scan.aiConfidence || 0;
+      const lastConfidence = cases[0].scan.aiConfidence || 0;
+      if (firstConfidence > 0) {
+        growthPercentage = Math.round(((lastConfidence - firstConfidence) / firstConfidence) * 100);
+      }
+>>>>>>> Stashed changes
     }
 
     return {
       patient: {
+<<<<<<< Updated upstream
         id: patientInfo?.patientId,
         name: patientInfo?.patientName,
         age: patientInfo?.patientAge,
@@ -413,6 +656,21 @@ const getPatientEvolution = async (patientId) => {
         date: c.createdAt.toISOString().split('T')[0],
         imageUrl: c.clinicalImageUrl,
         note: c.patientNotes || 'Patient scan',
+=======
+        id: patientId,
+        name: patient.user.name,
+        age: patientAge,
+        gender: patient.user.gender
+      },
+      evolution: cases.map((c, index) => ({
+        caseId: c.caseId,
+        date: c.createdAt.toISOString().split('T')[0],
+        imageUrl: c.scan.imageUrl,
+        prediction: c.scan.aiPrediction,
+        confidence: c.scan.aiConfidence,
+        diagnosis: c.finalDiagnosis,
+        note: c.scan.complaint || 'Patient scan',
+>>>>>>> Stashed changes
         growthPercentage: index === 0 ? growthPercentage : undefined
       }))
     };
@@ -445,7 +703,11 @@ const getDoctorProfile = async (userId) => {
     }
 
     return {
+<<<<<<< Updated upstream
       doctorId: doctorProfile.doctorId,
+=======
+      doctorId: doctorProfile.id,
+>>>>>>> Stashed changes
       fullName: user.name,
       email: user.email,
       gender: user.gender,
@@ -453,7 +715,12 @@ const getDoctorProfile = async (userId) => {
       phoneNumber: user.phone,
       birthDate: user.birthDate ? user.birthDate.toISOString().split('T')[0] : null,
       joinedAt: doctorProfile.joinedAt.toISOString().split('T')[0],
+<<<<<<< Updated upstream
       profileImageUrl: doctorProfile.profileImageUrl,
+=======
+      profileImageUrl: user.avatarUrl || '',
+      specialization: doctorProfile.specialization || 'Dermatology',
+>>>>>>> Stashed changes
       practitionerStatus: {
         status: doctorProfile.verificationStatus,
         label: doctorProfile.verificationStatus === 'verified' ? 'Verified Doctor' : 'Pending Verification',
@@ -496,6 +763,7 @@ const updateDoctorProfile = async (userId, updates) => {
  */
 const updateProfilePhoto = async (userId, photoPath) => {
   try {
+<<<<<<< Updated upstream
     const doctorProfile = await prisma.doctorProfile.findUnique({
       where: { userId }
     });
@@ -508,6 +776,20 @@ const updateProfilePhoto = async (userId, photoPath) => {
       where: { userId },
       data: {
         profileImageUrl: photoPath
+=======
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        avatarUrl: photoPath
+>>>>>>> Stashed changes
       }
     });
 
