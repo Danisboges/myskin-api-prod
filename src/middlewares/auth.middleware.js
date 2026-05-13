@@ -46,5 +46,15 @@ const isAdminOrDoctor = (req, res, next) => {
   }
 };
 
+const isDoctor = (req, res, next) => {
+  if (!req.user || req.user.role !== "doctor") {
+    return res.status(403).json({
+      status: "error",
+      message: "Akses ditolak. Endpoint ini hanya untuk Dokter."
+    });
+  }
+  next();
+};
+
 // Pastikan nama di sini sesuai dengan yang akan di-import di route
-module.exports = { verifyToken, isAdmin, isAdminOrDoctor };
+module.exports = { verifyToken, isAdmin, isAdminOrDoctor, isDoctor };

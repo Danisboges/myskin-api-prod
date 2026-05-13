@@ -6,6 +6,8 @@ const fs = require('fs'); // Untuk auto-create folder uploads
 const userRoutes = require('./src/routes/auth.route');
 const detectionRoutes = require('./src/routes/detection.route');
 const userManagementRoutes = require("./src/routes/userManagement.route");
+const doctorRoutes = require('./src/routes/doctor.route');
+const adminRoutes = require('./src/routes/admin.route');
 
 const app = express();
 
@@ -35,10 +37,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// 5. Report uploads 
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // 5. ROUTES
 app.use('/api/auth', userRoutes);
 app.use('/api/detection', detectionRoutes);
 app.use("/api/user", userManagementRoutes);
+app.use('/api/v1/doctor', doctorRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 // 6. 404 HANDLER (Jika route tidak ditemukan)
 app.use((req, res) => {
