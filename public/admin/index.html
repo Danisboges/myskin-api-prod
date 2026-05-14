@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MySkin Admin</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Admin navigation">
+        <a class="brand" href="#users" aria-label="MySkin admin home">
+          <span class="brand-mark">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a4.5 4.5 0 0 0-2 8.53V17H7.75a.75.75 0 0 0 0 1.5h8.5a.75.75 0 0 0 0-1.5H14v-4.97a4.5 4.5 0 0 0-2-8.53Zm0 1.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm-4.25 15a.75.75 0 0 0 0 1.5h8.5a.75.75 0 0 0 0-1.5h-8.5Z"/></svg>
+          </span>
+          <span>MySkin</span>
+        </a>
+
+        <nav class="nav-list">
+          <button class="nav-item active" data-view="users" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-1.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM3 19.25C3 16.35 5.69 14 9 14h.3a.75.75 0 0 1 0 1.5H9c-2.5 0-4.5 1.68-4.5 3.75a.75.75 0 0 1-1.5 0Zm12-7.25a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm0-1.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm-1.25 8.75a.75.75 0 0 1-1.5 0c0-2.36 2.16-4.25 4.75-4.25s4.75 1.89 4.75 4.25a.75.75 0 0 1-1.5 0c0-1.47-1.45-2.75-3.25-2.75s-3.25 1.28-3.25 2.75Z"/></svg>
+            <span>User Management</span>
+          </button>
+          <button class="nav-item" data-view="doctors" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11.5a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-1.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm8-1.5h1.5V7a.75.75 0 0 1 1.5 0v1.5h1.5a.75.75 0 0 1 0 1.5H19v1.5a.75.75 0 0 1-1.5 0V10H16a.75.75 0 0 1 0-1.5ZM2.75 19.25C2.75 16.35 5.1 14 8 14s5.25 2.35 5.25 5.25a.75.75 0 0 1-1.5 0c0-2.07-1.68-3.75-3.75-3.75s-3.75 1.68-3.75 3.75a.75.75 0 0 1-1.5 0Zm13.75-.5v-2.25H14.25a.75.75 0 0 1 0-1.5h2.25v-2.25a.75.75 0 0 1 1.5 0V15h2.25a.75.75 0 0 1 0 1.5H18v2.25a.75.75 0 0 1-1.5 0Z"/></svg>
+            <span>Doctor Details</span>
+          </button>
+          <button class="nav-item" data-view="settings" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.25 3a1.75 1.75 0 0 1 1.69 1.31l.22.86c.28.12.56.28.82.46l.85-.25a1.75 1.75 0 0 1 1.92.76l1.25 2.16a1.75 1.75 0 0 1-.38 2.02l-.64.61c.02.17.02.34.02.52s0 .35-.02.52l.64.61c.55.53.7 1.36.38 2.02l-1.25 2.16a1.75 1.75 0 0 1-1.92.76l-.85-.25c-.26.18-.54.34-.82.46l-.22.86A1.75 1.75 0 0 1 13.25 21h-2.5a1.75 1.75 0 0 1-1.69-1.31l-.22-.86a7.1 7.1 0 0 1-.82-.46l-.85.25a1.75 1.75 0 0 1-1.92-.76L4 15.7a1.75 1.75 0 0 1 .38-2.02l.64-.61A6.22 6.22 0 0 1 5 12c0-.18 0-.35.02-.52l-.64-.61A1.75 1.75 0 0 1 4 8.85l1.25-2.16a1.75 1.75 0 0 1 1.92-.76l.85.25c.26-.18.54-.34.82-.46l.22-.86A1.75 1.75 0 0 1 10.75 3h2.5Zm-1.25 6a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg>
+            <span>System Settings</span>
+          </button>
+        </nav>
+
+        <button class="logout" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.75 4A1.75 1.75 0 0 0 3 5.75v12.5C3 19.22 3.78 20 4.75 20h7.5a.75.75 0 0 0 0-1.5h-7.5a.25.25 0 0 1-.25-.25V5.75c0-.14.11-.25.25-.25h7.5a.75.75 0 0 0 0-1.5h-7.5Zm11.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 1 1-1.06-1.06l1.97-1.97H9.75a.75.75 0 0 1 0-1.5h8.19l-1.97-1.97a.75.75 0 0 1 0-1.06Z"/></svg>
+          <span>Logout</span>
+        </button>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <button class="mobile-menu" type="button" aria-label="Open navigation">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.75A.75.75 0 0 1 4.75 6h14.5a.75.75 0 0 1 0 1.5H4.75A.75.75 0 0 1 4 6.75Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H4.75A.75.75 0 0 1 4 12Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H4.75A.75.75 0 0 1 4 17.25Z"/></svg>
+          </button>
+          <div></div>
+          <button class="icon-button" type="button" aria-label="Notifications">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.25a5.75 5.75 0 0 0-5.75 5.75v3.1l-1.1 2.2A1.75 1.75 0 0 0 6.71 17h10.58a1.75 1.75 0 0 0 1.56-2.7l-1.1-2.2V9A5.75 5.75 0 0 0 12 3.25Zm-2.25 15.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 1-.75-.75Z"/></svg>
+          </button>
+          <div class="top-divider"></div>
+          <button class="profile-chip" data-view="profile" type="button">
+            <span>
+              <strong>Aryo Jaty</strong>
+              <small>Administrator</small>
+            </span>
+            <span class="avatar photo">AJ</span>
+          </button>
+        </header>
+
+        <section class="view active" id="view-users">
+          <div class="page-head split">
+            <div>
+              <h1>User Management</h1>
+              <p>Authorize medical practitioners, manage access levels, and audit system activity across the MySkin diagnostic network.</p>
+            </div>
+            <button class="primary-button" id="openAddUser" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.75 4a.75.75 0 0 1 .75.75V7h2.25a.75.75 0 0 1 0 1.5H16.5v2.25a.75.75 0 0 1-1.5 0V8.5h-2.25a.75.75 0 0 1 0-1.5H15V4.75a.75.75 0 0 1 .75-.75ZM8.5 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-1.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM3 19.25C3 16.35 5.69 14 9 14h.75a.75.75 0 0 1 0 1.5H9c-2.5 0-4.5 1.68-4.5 3.75a.75.75 0 0 1-1.5 0Z"/></svg>
+              Add User
+            </button>
+          </div>
+
+          <div class="segmented" role="tablist" aria-label="User role filter">
+            <button class="active" data-filter="all" type="button">All Roles</button>
+            <button data-filter="doctor" type="button">Doctors</button>
+            <button data-filter="patient" type="button">Patients</button>
+          </div>
+
+          <article class="table-card user-card">
+            <div class="table-grid users header">
+              <span>Name</span>
+              <span>Role</span>
+              <span>Email</span>
+              <span>Status</span>
+              <span>Actions</span>
+            </div>
+            <div class="table-body" id="userRows"></div>
+          </article>
+
+          <div class="table-footer">
+            <span>Showing <strong>1-8</strong> of 1,240 users</span>
+            <div class="pager">
+              <button type="button" aria-label="Previous page"><svg viewBox="0 0 24 24"><path d="M14.78 5.72a.75.75 0 0 1 0 1.06L9.56 12l5.22 5.22a.75.75 0 1 1-1.06 1.06l-5.75-5.75a.75.75 0 0 1 0-1.06l5.75-5.75a.75.75 0 0 1 1.06 0Z"/></svg></button>
+              <button class="active" type="button">1</button>
+              <button type="button">2</button>
+              <button type="button" aria-label="Next page"><svg viewBox="0 0 24 24"><path d="M9.22 18.28a.75.75 0 0 1 0-1.06L14.44 12 9.22 6.78a.75.75 0 0 1 1.06-1.06l5.75 5.75a.75.75 0 0 1 0 1.06l-5.75 5.75a.75.75 0 0 1-1.06 0Z"/></svg></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-doctors">
+          <div class="page-head doctor-head">
+            <div>
+              <span class="eyebrow">Internal Operations</span>
+              <h1>Manage your medical team's precision and performance.</h1>
+            </div>
+            <div class="head-actions">
+              <button class="soft-button" type="button">
+                <svg viewBox="0 0 24 24"><path d="M4.75 6a.75.75 0 0 0 0 1.5h14.5a.75.75 0 0 0 0-1.5H4.75Zm2.5 5.25a.75.75 0 0 0 0 1.5h9.5a.75.75 0 0 0 0-1.5h-9.5Zm3 5.25a.75.75 0 0 0 0 1.5h3.5a.75.75 0 0 0 0-1.5h-3.5Z"/></svg>
+                Filters
+              </button>
+              <button class="primary-button" type="button">Export Report</button>
+            </div>
+          </div>
+
+          <div class="metrics">
+            <div class="metric"><span>Total Clinicians</span><strong>124</strong><em>+12%</em></div>
+            <div class="metric"><span>Pending Approvals</span><strong>08</strong><small>Urgent</small></div>
+            <div class="metric"><span>Patient Throughput</span><strong>1,402</strong><b>Avg / Mo</b></div>
+          </div>
+
+          <article class="table-card doctor-card">
+            <div class="table-grid doctors header">
+              <span>Name</span>
+              <span>Registration Date</span>
+              <span>Email</span>
+              <span>Patient Load</span>
+              <span>Actions</span>
+            </div>
+            <div class="table-body" id="doctorRows"></div>
+          </article>
+
+          <div class="table-footer compact">
+            <span>Showing <strong>1-8</strong> of 2 users</span>
+            <div class="pager">
+              <button type="button" aria-label="Previous page"><svg viewBox="0 0 24 24"><path d="M14.78 5.72a.75.75 0 0 1 0 1.06L9.56 12l5.22 5.22a.75.75 0 1 1-1.06 1.06l-5.75-5.75a.75.75 0 0 1 0-1.06l5.75-5.75a.75.75 0 0 1 1.06 0Z"/></svg></button>
+              <button class="active" type="button">1</button>
+              <button type="button">2</button>
+              <button type="button" aria-label="Next page"><svg viewBox="0 0 24 24"><path d="M9.22 18.28a.75.75 0 0 1 0-1.06L14.44 12 9.22 6.78a.75.75 0 0 1 1.06-1.06l5.75 5.75a.75.75 0 0 1 0 1.06l-5.75 5.75a.75.75 0 0 1-1.06 0Z"/></svg></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-profile">
+          <div class="page-head">
+            <h1>Profile Settings</h1>
+            <p>Manage your clinical credentials, personal information, and platform preferences for the MySkin diagnostic ecosystem.</p>
+          </div>
+
+          <div class="profile-layout">
+            <article class="profile-card">
+              <div class="portrait-wrap">
+                <span class="portrait">AJ</span>
+                <button class="edit-photo" type="button" aria-label="Edit profile photo">
+                  <svg viewBox="0 0 24 24"><path d="m15.23 5.23 3.54 3.54-9.9 9.9-4.08.54.54-4.08 9.9-9.9Zm1.06-1.06a1.5 1.5 0 0 1 2.12 0l1.42 1.42a1.5 1.5 0 0 1 0 2.12l-.53.53-3.54-3.54.53-.53Z"/></svg>
+                </button>
+              </div>
+              <h2>Aryo Jaty</h2>
+              <strong>Administrator</strong>
+              <dl>
+                <div><dt>Clinic ID</dt><dd>#MS-9942</dd></div>
+                <div><dt>Joined</dt><dd>Oct 2023</dd></div>
+              </dl>
+            </article>
+
+            <article class="info-card">
+              <h2>
+                <svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 1.5c-3.31 0-6 2.35-6 5.25a.75.75 0 0 0 1.5 0c0-2.07 2-3.75 4.5-3.75s4.5 1.68 4.5 3.75a.75.75 0 0 0 1.5 0c0-2.9-2.69-5.25-6-5.25Z"/></svg>
+                General Information
+              </h2>
+              <div class="field-grid">
+                <label>Full Name<input value="Aryo Jaty"></label>
+                <label>Email Address<input value="aryojaty@icloud.com"></label>
+                <label>Gender<input value="Male"></label>
+                <label>Role<input value="Administrator"></label>
+                <label>Phone Number<input value="+628134567890"></label>
+                <label>Birth Date<input value="April 23, 1996"></label>
+              </div>
+            </article>
+          </div>
+
+          <article class="status-panel">
+            <span class="shield-badge"><svg viewBox="0 0 24 24"><path d="M12 3.2 5 5.85v5.3c0 4.45 2.83 8.43 7 9.85 4.17-1.42 7-5.4 7-9.85v-5.3L12 3.2Zm3.53 6.86-4.3 4.3a.75.75 0 0 1-1.06 0l-1.7-1.69a.75.75 0 0 1 1.06-1.06l1.17 1.16 3.77-3.77a.75.75 0 0 1 1.06 1.06Z"/></svg></span>
+            <div>
+              <span>Practitioner Status</span>
+              <strong>Verified Administrator</strong>
+              <p>Your administrator access for the MySkin platform has been verified to manage and oversee Melanoma AI analysis.</p>
+            </div>
+          </article>
+
+          <div class="page-actions">
+            <button class="link-button" type="button">Discard Changes</button>
+            <button class="primary-button wide" type="button">Save Profile Changes</button>
+          </div>
+        </section>
+
+        <section class="view" id="view-settings">
+          <div class="page-head">
+            <h1>Settings</h1>
+            <p>Manage your clinic preferences and security protocols.</p>
+          </div>
+
+          <div class="settings-stack">
+            <article class="settings-card account-card">
+              <h2><span class="line-icon">i</span> Account Settings</h2>
+              <div class="settings-columns">
+                <div class="form-stack">
+                  <label>Email Address<input value="aryojaty@icloud.com"></label>
+                  <label>Password<span class="input-row"><input value="********" readonly><button type="button">Change</button></span></label>
+                </div>
+                <div class="auth-card">
+                  <div>
+                    <strong>Two-Factor Authentication</strong>
+                    <p>Enhanced security for clinical data access.</p>
+                  </div>
+                  <button class="switch on" type="button" aria-label="Toggle two-factor authentication"><span></span></button>
+                </div>
+              </div>
+            </article>
+
+            <article class="settings-card">
+              <h2><span class="line-icon">n</span> Notification Settings</h2>
+              <div class="setting-row">
+                <span class="mini-icon"><svg viewBox="0 0 24 24"><path d="M4.75 5h14.5C20.2 5 21 5.8 21 6.75v10.5c0 .95-.8 1.75-1.75 1.75H4.75C3.8 19 3 18.2 3 17.25V6.75C3 5.8 3.8 5 4.75 5Zm.05 1.5 7.2 5 7.2-5H4.8Zm14.7 1.7-7.07 4.9a.75.75 0 0 1-.86 0L4.5 8.2v9.05c0 .14.11.25.25.25h14.5c.14 0 .25-.11.25-.25V8.2Z"/></svg></span>
+                <div><strong>Email Notifications</strong><p>Weekly summaries and system updates.</p></div>
+                <button class="switch on" type="button" aria-label="Toggle email notifications"><span></span></button>
+              </div>
+              <div class="setting-row">
+                <span class="mini-icon"><svg viewBox="0 0 24 24"><path d="M12 3.2 5 5.85v5.3c0 4.45 2.83 8.43 7 9.85 4.17-1.42 7-5.4 7-9.85v-5.3L12 3.2Zm0 1.6 5.5 2.1v4.25c0 3.56-2.15 6.8-5.5 8.25-3.35-1.45-5.5-4.69-5.5-8.25V6.9L12 4.8Z"/></svg></span>
+                <div><strong>Verification Alerts</strong><p>Instant alerts for new high-confidence detections.</p></div>
+                <button class="switch" type="button" aria-label="Toggle verification alerts"><span></span></button>
+              </div>
+            </article>
+
+            <div class="settings-grid">
+              <article class="settings-card">
+                <h2><span class="line-icon">p</span> Privacy Settings</h2>
+                <label class="select-label">Data Visibility<select><option>Restricted (Clinical Team Only)</option><option>Restricted (Self Only)</option><option>Shared with Clinic</option></select></label>
+                <em>Data is encrypted using AES-256 standards.</em>
+              </article>
+              <article class="settings-card">
+                <h2><span class="line-icon">s</span> System Preferences</h2>
+                <div class="language-row"><strong>Language</strong><button type="button">English (US)</button></div>
+              </article>
+            </div>
+          </div>
+
+          <div class="page-actions settings-actions">
+            <button class="link-button" type="button">Discard Changes</button>
+            <button class="primary-button wide" type="button">Save Preferences</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="modal-backdrop" id="userModal" aria-hidden="true">
+      <div class="modal user-modal" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
+        <button class="close-modal" data-close-modal type="button" aria-label="Close modal">
+          <svg viewBox="0 0 24 24"><path d="M6.22 6.22a.75.75 0 0 1 1.06 0L12 10.94l4.72-4.72a.75.75 0 0 1 1.06 1.06L13.06 12l4.72 4.72a.75.75 0 1 1-1.06 1.06L12 13.06l-4.72 4.72a.75.75 0 0 1-1.06-1.06L10.94 12 6.22 7.28a.75.75 0 0 1 0-1.06Z"/></svg>
+        </button>
+        <h2 id="userModalTitle">Add New User</h2>
+        <p id="userModalSubtitle">Register a new professional to the clinic portal</p>
+        <form class="modal-form">
+          <label class="full">Full Name<input id="modalName" placeholder="e.g. Dr. Helena Troy"></label>
+          <label>Role<select id="modalRole"><option>Doctor</option><option>Patient</option><option>Admin</option></select></label>
+          <label>Gender<select id="modalGender"><option>Female</option><option>Male</option></select></label>
+          <label class="full">Email Address<input id="modalEmail" placeholder="h.troy@clinical-atelier.com"></label>
+          <label class="full">Phone Number<input id="modalPhone" placeholder="+628134567890"></label>
+          <label class="full">Birth Date<input id="modalBirth" placeholder="April 23, 1996"></label>
+          <label class="full">Password<input id="modalPassword" placeholder="password123" type="password"></label>
+          <div class="modal-actions full">
+            <button class="secondary-button" data-close-modal type="button">Cancel</button>
+            <button class="primary-button" id="modalSubmit" type="button">Create Account</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="verificationModal" aria-hidden="true">
+      <div class="modal verification-modal" role="dialog" aria-modal="true" aria-labelledby="verificationTitle">
+        <button class="close-modal" data-close-modal type="button" aria-label="Close modal">
+          <svg viewBox="0 0 24 24"><path d="M6.22 6.22a.75.75 0 0 1 1.06 0L12 10.94l4.72-4.72a.75.75 0 0 1 1.06 1.06L13.06 12l4.72 4.72a.75.75 0 1 1-1.06 1.06L12 13.06l-4.72 4.72a.75.75 0 0 1-1.06-1.06L10.94 12 6.22 7.28a.75.75 0 0 1 0-1.06Z"/></svg>
+        </button>
+        <h2 id="verificationTitle">Verification request</h2>
+        <div class="mini-table">
+          <div class="mini-header"><span>Patient Name</span><span>Date</span><span>Diagnosis AI</span></div>
+          <div class="mini-row">
+            <span class="avatar patient">SJ</span>
+            <div><strong>Sarah Johnson</strong><small>ID: #SKN-2041</small></div>
+            <span>Jan 12, 2024</span>
+            <strong class="diagnosis">60% Malignant Melanoma</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

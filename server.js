@@ -8,6 +8,7 @@ const detectionRoutes = require('./src/routes/detection.route');
 const userManagementRoutes = require("./src/routes/userManagement.route");
 
 const app = express();
+const adminUiDir = path.join(__dirname, 'public', 'admin');
 
 // 1. BUAT FOLDER UPLOADS OTOMATIS (Mencegah error ENOENT)
 const uploadDir = path.join(__dirname, 'uploads');
@@ -22,6 +23,7 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // 3. STATIC FILES
 app.use('/uploads', express.static(uploadDir));
+app.use('/admin', express.static(adminUiDir));
 
 // 4. CUSTOM LOGGER MIDDLEWARE
 app.use((req, res, next) => {
@@ -39,6 +41,10 @@ app.use((req, res, next) => {
 app.use('/api/auth', userRoutes);
 app.use('/api/detection', detectionRoutes);
 app.use("/api/user", userManagementRoutes);
+
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(adminUiDir, 'index.html'));
+});
 
 // 6. 404 HANDLER (Jika route tidak ditemukan)
 app.use((req, res) => {
