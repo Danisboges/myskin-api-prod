@@ -3,6 +3,7 @@ const router = express.Router();
 const adminController = require("../controllers/admin.controller");
 const { verifyToken, isAdmin } = require("../middlewares/auth.middleware");
 const uploadMiddleware = require("../middlewares/upload.middleware");
+const uploadMedicalLicense = require("../middlewares/medical-license.middleware");
 
 // ==================== DASHBOARD ROUTES ====================
 
@@ -34,7 +35,7 @@ router.get("/users", verifyToken, isAdmin, adminController.getAllUsers);
 router.get("/users/:userId", verifyToken, isAdmin, adminController.getUserById);
 
 // POST /api/v1/admin/users
-router.post("/users", verifyToken, isAdmin, adminController.createUser);
+router.post("/users", verifyToken, isAdmin, uploadMedicalLicense, adminController.createUser);
 
 // PATCH /api/v1/admin/users/:userId
 router.patch("/users/:userId", verifyToken, isAdmin, adminController.updateUser);
@@ -70,6 +71,9 @@ router.patch("/doctors/:doctorId/approve", verifyToken, isAdmin, adminController
 
 // PATCH /api/v1/admin/doctors/:doctorId/reject
 router.patch("/doctors/:doctorId/reject", verifyToken, isAdmin, adminController.rejectDoctorRequest);
+
+// PATCH /api/v1/admin/doctors/:doctorId/license
+router.patch("/doctors/:doctorId/license", verifyToken, isAdmin, uploadMedicalLicense, adminController.updateDoctorLicense);
 
 // ==================== PROFILE ROUTES ====================
 

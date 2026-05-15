@@ -3,7 +3,10 @@ const authService = require('../services/auth.service');
 const register = async (req, res) => {
   try {
     console.log("Mencoba Register:", req.body.email);
-    const user = await authService.registerUser(req.body);
+    const user = await authService.registerUser({
+      ...req.body,
+      medicalLicense: req.file ? `/uploads/licenses/${req.file.filename}` : req.body.medicalLicense,
+    });
     res.status(201).json({ message: "Register Berhasil", data: user });
   } catch (err) {
     console.error("Gagal Register:", err.message);

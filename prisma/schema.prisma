@@ -114,6 +114,7 @@ model DoctorProfile {
   clinicId            String?    
   verificationStatus  String   @default("unverified") // unverified, pending, verified
   practitionerLicense String?  
+  licenseFile         String?
   specialization      String   @default("Dermatology")
   
   joinedAt            DateTime @default(now())

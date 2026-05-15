@@ -167,7 +167,7 @@ const getAllUsers = async (req, res) => {
     const users = await adminService.getAllUsers({
       search,
       role,
-      status,
+      status: status || "all",
       page: page || 1,
       limit: limit || 8,
       sortBy: sortBy || "createdAt",
@@ -202,7 +202,10 @@ const createUser = async (req, res) => {
       return res.status(400).json({ status: "error", errors: validationErrors });
     }
 
-    const result = await adminService.createUser(req.body);
+    const result = await adminService.createUser({
+      ...req.body,
+      medicalLicense: req.file ? `/uploads/licenses/${req.file.filename}` : req.body.medicalLicense,
+    });
 
     // Log audit
     await adminService.createAuditLog(
@@ -220,6 +223,9 @@ const createUser = async (req, res) => {
 
     res.status(201).json(result);
   } catch (err) {
+    if (err.status === 400) {
+      return res.status(400).json({ status: "error", message: err.message });
+    }
     if (err.status === 409) {
       return res.status(409).json({ status: "error", message: err.message });
     }
@@ -426,7 +432,7 @@ const getAllDoctors = async (req, res) => {
 
     const doctors = await adminService.getAllDoctors({
       search,
-      status: status || "verified",
+      status: status || "all",
       page: page || 1,
       limit: limit || 8,
     });
@@ -534,6 +540,32 @@ const rejectDoctorRequest = async (req, res) => {
       return res.status(404).json({ status: "error", message: err.message });
     }
     console.error("Error rejecting doctor:", err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+const updateDoctorLicense = async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+
+    if (!req.file) {
+      return res.status(400).json({
+        status: "error",
+        message: "Medical license file is required",
+      });
+    }
+
+    const result = await adminService.updateDoctorLicense(
+      doctorId,
+      `/uploads/licenses/${req.file.filename}`
+    );
+
+    res.status(200).json({ status: "success", ...result });
+  } catch (err) {
+    if (err.status === 404) {
+      return res.status(404).json({ status: "error", message: err.message });
+    }
+    console.error("Error updating doctor license:", err);
     res.status(500).json({ status: "error", message: err.message });
   }
 };
@@ -831,6 +863,7 @@ module.exports = {
   getDoctorVerificationRequests,
   approveDoctorRequest,
   rejectDoctorRequest,
+  updateDoctorLicense,
 
   // Profile
   getAdminProfile,
