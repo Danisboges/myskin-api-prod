@@ -4,6 +4,74 @@ const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
 
+const formatDate = (date) => {
+  if (!date) return null;
+  return date.toISOString().split("T")[0];
+};
+
+const formatDateTime = (date) => {
+  if (!date) return null;
+  return date.toISOString();
+};
+
+const formatUserForAdmin = (user) => ({
+  userId: user.id,
+  fullName: user.name,
+  email: user.email,
+  role: user.role,
+  status: user.status,
+  gender: user.gender,
+  phoneNumber: user.phone,
+  birthDate: formatDate(user.birthDate),
+  avatarUrl: user.avatarUrl,
+  clinicId: user.doctorProfile?.clinicId || null,
+  specialization: user.doctorProfile?.specialization || null,
+  licenseNumber: user.doctorProfile?.practitionerLicense || null,
+  licenseFile: user.doctorProfile?.licenseFile || null,
+});
+
+const formatDoctorForAdmin = (doctor) => ({
+  doctorId: doctor.id,
+  userId: doctor.userId,
+  fullName: doctor.user.name,
+  email: doctor.user.email,
+  role: doctor.user.role,
+  userStatus: doctor.user.status,
+  gender: doctor.user.gender,
+  phoneNumber: doctor.user.phone,
+  birthDate: formatDate(doctor.user.birthDate),
+  avatarUrl: doctor.user.avatarUrl,
+  clinicId: doctor.clinicId,
+  licenseNumber: doctor.practitionerLicense,
+  licenseFile: doctor.licenseFile,
+  specialization: doctor.specialization,
+  registrationDate: formatDateTime(doctor.joinedAt),
+  joinedAt: formatDateTime(doctor.joinedAt),
+  status: doctor.verificationStatus,
+  patientLoad: doctor.caseReviews?.length || 0,
+});
+
+const findDoctorProfileById = async (doctorId, include = {}) => {
+  const doctor = await prisma.doctorProfile.findFirst({
+    where: {
+      OR: [
+        { id: doctorId },
+        { userId: doctorId },
+        { clinicId: doctorId },
+      ],
+    },
+    include,
+  });
+
+  if (!doctor) {
+    const error = new Error("Doctor not found");
+    error.status = 404;
+    throw error;
+  }
+
+  return doctor;
+};
+
 
 // ==================== DASHBOARD ENDPOINTS ====================
 
@@ -442,7 +510,7 @@ const getAllUsers = async (filters = {}) => {
   const {
     search = "",
     role = "all",
-    status = "active",
+    status = "all",
     page = 1,
     limit = 8,
     sortBy = "createdAt",
@@ -466,7 +534,7 @@ const getAllUsers = async (filters = {}) => {
   }
 
   // Status filter
-  if (status) {
+  if (status && status !== "all") {
     where.status = status;
   }
 
@@ -479,37 +547,33 @@ const getAllUsers = async (filters = {}) => {
       select: {
         id: true,
         name: true,
-        role: true,
         email: true,
+        role: true,
         status: true,
         gender: true,
         phone: true,
         birthDate: true,
         avatarUrl: true,
-        createdAt: true,
+        doctorProfile: {
+          select: {
+            clinicId: true,
+            specialization: true,
+            practitionerLicense: true,
+            licenseFile: true,
+          },
+        },
       },
     }),
     prisma.user.count({ where }),
   ]);
 
   return {
-    data: users.map((user) => ({
-      userId: user.id,
-      fullName: user.name,
-      role: user.role,
-      email: user.email,
-      status: user.status,
-      gender: user.gender,
-      phoneNumber: user.phone,
-      birthDate: user.birthDate,
-      avatarUrl: user.avatarUrl,
-      createdAt: user.createdAt,
-    })),
+    data: users.map(formatUserForAdmin),
     meta: {
       page: parseInt(page),
       limit: parseInt(limit),
       total,
-      totalPages: Math.ceil(total / limit),
+      totalPages: Math.ceil(total / parseInt(limit)),
     },
   };
 };
@@ -528,6 +592,14 @@ const getUserById = async (userId) => {
       birthDate: true,
       avatarUrl: true,
       createdAt: true,
+      doctorProfile: {
+        select: {
+          clinicId: true,
+          specialization: true,
+          practitionerLicense: true,
+          licenseFile: true,
+        },
+      },
     },
   });
 
@@ -536,20 +608,25 @@ const getUserById = async (userId) => {
   }
 
   return {
-    userId: user.id,
-    fullName: user.name,
-    role: user.role,
-    email: user.email,
-    status: user.status,
-    gender: user.gender,
-    phoneNumber: user.phone,
-    birthDate: user.birthDate,
-    avatarUrl: user.avatarUrl,
-    joinedAt: user.createdAt,
+    ...formatUserForAdmin(user),
+    joinedAt: formatDateTime(user.createdAt),
+    createdAt: formatDateTime(user.createdAt),
   };
 };
 
 const createUser = async (userData) => {
+  if (userData.role === "doctor" && !userData.specialization) {
+    const error = new Error("Specialization is required for doctor");
+    error.status = 400;
+    throw error;
+  }
+
+  if (userData.role === "doctor" && !userData.licenseNumber) {
+    const error = new Error("License number is required for doctor");
+    error.status = 400;
+    throw error;
+  }
+
   // Check if email exists
   const existingUser = await prisma.user.findUnique({
     where: { email: userData.email },
@@ -563,6 +640,15 @@ const createUser = async (userData) => {
 
   const hashedPassword = await bcrypt.hash(userData.password, 10);
 
+  const doctorProfileData = userData.role === "doctor"
+    ? {
+        verificationStatus: "pending",
+        specialization: userData.specialization,
+        practitionerLicense: userData.licenseNumber,
+        licenseFile: userData.medicalLicense || null,
+      }
+    : undefined;
+
   const user = await prisma.user.create({
     data: {
       name: userData.fullName,
@@ -573,6 +659,11 @@ const createUser = async (userData) => {
       phone: userData.phoneNumber,
       birthDate: userData.birthDate ? new Date(userData.birthDate) : null,
       status: "pending",
+      ...(doctorProfileData && {
+        doctorProfile: {
+          create: doctorProfileData,
+        },
+      }),
     },
     select: {
       id: true,
@@ -580,6 +671,16 @@ const createUser = async (userData) => {
       email: true,
       role: true,
       status: true,
+      doctorProfile: {
+        select: {
+          id: true,
+          specialization: true,
+          practitionerLicense: true,
+          licenseFile: true,
+          verificationStatus: true,
+          joinedAt: true,
+        },
+      },
     },
   });
 
@@ -591,6 +692,16 @@ const createUser = async (userData) => {
       role: user.role,
       email: user.email,
       status: user.status,
+      ...(user.doctorProfile && {
+        doctorProfile: {
+          doctorId: user.doctorProfile.id,
+          specialization: user.doctorProfile.specialization,
+          practitionerLicense: user.doctorProfile.practitionerLicense,
+          licenseFile: user.doctorProfile.licenseFile,
+          verificationStatus: user.doctorProfile.verificationStatus,
+          joinedAt: user.doctorProfile.joinedAt,
+        },
+      }),
     },
   };
 };
@@ -681,10 +792,8 @@ const deleteUser = async (userId) => {
     throw error;
   }
 
-  // Soft delete
-  await prisma.user.update({
+  await prisma.user.delete({
     where: { id: userId },
-    data: { status: "inactive" },
   });
 
   return {
@@ -789,15 +898,17 @@ const getDoctorsSummary = async () => {
 const getAllDoctors = async (filters = {}) => {
   const {
     search = "",
-    status = "verified",
+    status = "all",
     page = 1,
     limit = 8,
   } = filters;
 
   const skip = (page - 1) * limit;
-  const where = {
-    verificationStatus: status,
-  };
+  const where = {};
+
+  if (status && status !== "all") {
+    where.verificationStatus = status;
+  }
 
   if (search) {
     where.user = {
@@ -820,6 +931,11 @@ const getAllDoctors = async (filters = {}) => {
             id: true,
             name: true,
             email: true,
+            role: true,
+            status: true,
+            gender: true,
+            phone: true,
+            birthDate: true,
             avatarUrl: true,
           },
         },
@@ -832,111 +948,97 @@ const getAllDoctors = async (filters = {}) => {
   ]);
 
   return {
-    data: doctors.map((doctor) => ({
-      doctorId: doctor.doctorId,
-      fullName: doctor.user.name,
-      email: doctor.user.email,
-      registrationDate: doctor.joinedAt,
-      patientLoad: doctor.caseReviews.length,
-      status: doctor.verificationStatus,
-      avatarUrl: doctor.user.avatarUrl,
-    })),
+    data: doctors.map(formatDoctorForAdmin),
     meta: {
       page: parseInt(page),
       limit: parseInt(limit),
       total,
+      totalPages: Math.ceil(total / parseInt(limit)),
     },
   };
 };
 
 const getDoctorById = async (doctorId) => {
-  const doctor = await prisma.doctorProfile.findUnique({
-    where: { doctorId },
-    include: {
-      user: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          gender: true,
-          phone: true,
-          avatarUrl: true,
-        },
+  const doctor = await findDoctorProfileById(doctorId, {
+    user: {
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        status: true,
+        gender: true,
+        phone: true,
+        birthDate: true,
+        avatarUrl: true,
       },
-      caseReviews: {
-        select: { id: true },
-      },
+    },
+    caseReviews: {
+      select: { id: true },
     },
   });
 
-  if (!doctor) {
-    const error = new Error("Doctor not found");
-    error.status = 404;
-    throw error;
-  }
-
-  return {
-    doctorId: doctor.doctorId,
-    fullName: doctor.user.name,
-    email: doctor.user.email,
-    gender: doctor.user.gender,
-    phoneNumber: doctor.user.phone,
-    specialization: doctor.specialization,
-    registrationDate: doctor.joinedAt,
-    status: doctor.verificationStatus,
-    patientLoad: doctor.caseReviews.length,
-    avatarUrl: doctor.user.avatarUrl,
-  };
+  return formatDoctorForAdmin(doctor);
 };
 
 const getDoctorVerificationRequests = async (doctorId) => {
-  const doctor = await prisma.doctorProfile.findUnique({
-    where: { doctorId },
-    include: { user: true },
+  const doctor = await findDoctorProfileById(doctorId, {
+    user: true,
   });
-
-  if (!doctor) {
-    const error = new Error("Doctor not found");
-    error.status = 404;
-    throw error;
-  }
 
   const caseReviews = await prisma.caseReview.findMany({
     where: { doctorId: doctor.id },
     include: {
+      scan: {
+        include: {
+          patient: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  avatarUrl: true,
+                },
+              },
+            },
+          },
+        },
+      },
       observations: {
         select: { id: true, observation: true },
       },
     },
+    orderBy: { receivedAt: "desc" },
   });
 
   return {
     doctor: {
-      doctorId: doctor.doctorId,
+      doctorId: doctor.id,
+      userId: doctor.userId,
       fullName: doctor.user.name,
     },
     data: caseReviews.map((caseReview) => ({
       requestId: caseReview.caseId,
-      patientName: caseReview.patientName,
-      patientId: caseReview.patientId,
-      date: caseReview.receivedAt,
-      aiDiagnosis: `${caseReview.aiConfidencePercentage}% ${caseReview.aiPredictionLabel}`,
+      patientName: caseReview.scan.patient.user.name,
+      patientId: caseReview.scan.patient.user.id,
+      patientAvatarUrl: caseReview.scan.patient.user.avatarUrl,
+      patientEmail: caseReview.scan.patient.user.email,
+      date: formatDateTime(caseReview.receivedAt),
+      aiDiagnosis: caseReview.scan.aiPrediction,
+      aiConfidence: caseReview.scan.aiConfidence,
+      reviewStatus: caseReview.reviewStatus,
       caseId: caseReview.caseId,
+      observations: caseReview.observations,
     })),
   };
 };
 
 const approveDoctorRequest = async (doctorId, note) => {
-  const doctor = await prisma.doctorProfile.findUnique({ where: { doctorId } });
-
-  if (!doctor) {
-    const error = new Error("Doctor not found");
-    error.status = 404;
-    throw error;
-  }
+  const doctor = await findDoctorProfileById(doctorId);
 
   await prisma.doctorProfile.update({
-    where: { doctorId },
+    where: { id: doctor.id },
     data: { verificationStatus: "verified" },
   });
 
@@ -946,21 +1048,44 @@ const approveDoctorRequest = async (doctorId, note) => {
 };
 
 const rejectDoctorRequest = async (doctorId, reason) => {
-  const doctor = await prisma.doctorProfile.findUnique({ where: { doctorId } });
-
-  if (!doctor) {
-    const error = new Error("Doctor not found");
-    error.status = 404;
-    throw error;
-  }
+  const doctor = await findDoctorProfileById(doctorId);
 
   await prisma.doctorProfile.update({
-    where: { doctorId },
+    where: { id: doctor.id },
     data: { verificationStatus: "rejected" },
   });
 
   return {
     message: "Doctor approval request rejected",
+  };
+};
+
+const updateDoctorLicense = async (doctorId, licenseFile) => {
+  const doctor = await findDoctorProfileById(doctorId);
+  const previousLicenseFile = doctor.licenseFile;
+
+  const updatedDoctor = await prisma.doctorProfile.update({
+    where: { id: doctor.id },
+    data: { licenseFile },
+    select: {
+      id: true,
+      licenseFile: true,
+    },
+  });
+
+  if (previousLicenseFile?.startsWith("/uploads/licenses/")) {
+    const previousPath = path.join(__dirname, "../..", previousLicenseFile);
+    if (fs.existsSync(previousPath)) {
+      fs.unlinkSync(previousPath);
+    }
+  }
+
+  return {
+    message: "Doctor medical license updated successfully",
+    data: {
+      doctorId: updatedDoctor.id,
+      licenseFile: updatedDoctor.licenseFile,
+    },
   };
 };
 
@@ -988,6 +1113,23 @@ const getAdminProfile = async (adminId) => {
     throw error;
   }
 
+  let settings = await prisma.adminSettings.findUnique({
+    where: { adminId },
+  });
+
+  if (!settings) {
+    settings = await prisma.adminSettings.create({
+      data: {
+        adminId,
+        twoFactorEnabled: false,
+        emailNotifications: true,
+        verificationAlerts: false,
+        dataVisibility: "restricted_clinical_team_only",
+        language: "English (US)",
+      },
+    });
+  }
+
   return {
     adminId: admin.id,
     fullName: admin.name,
@@ -995,9 +1137,21 @@ const getAdminProfile = async (adminId) => {
     gender: admin.gender,
     role: admin.role,
     phoneNumber: admin.phone,
-    birthDate: admin.birthDate,
-    joinedAt: admin.createdAt,
-    profileImageUrl: admin.avatarUrl,
+    birthDate: formatDate(admin.birthDate),
+    joinedAt: formatDateTime(admin.createdAt),
+    createdAt: formatDateTime(admin.createdAt),
+    avatarUrl: admin.avatarUrl,
+    twoFactorEnabled: settings.twoFactorEnabled,
+    notifications: {
+      emailNotifications: settings.emailNotifications,
+      verificationAlerts: settings.verificationAlerts,
+    },
+    privacy: {
+      dataVisibility: settings.dataVisibility,
+    },
+    preferences: {
+      language: settings.language,
+    },
     administratorStatus: {
       status: "verified",
       label: "Verified Administrator",
@@ -1063,6 +1217,27 @@ const getVerificationStatus = async () => {
 // ==================== SETTINGS ENDPOINTS ====================
 
 const getAdminSettings = async (adminId) => {
+  const admin = await prisma.user.findUnique({
+    where: { id: adminId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      gender: true,
+      role: true,
+      phone: true,
+      birthDate: true,
+      createdAt: true,
+      avatarUrl: true,
+    },
+  });
+
+  if (!admin) {
+    const error = new Error("Admin not found");
+    error.status = 404;
+    throw error;
+  }
+
   let settings = await prisma.adminSettings.findUnique({
     where: { adminId },
   });
@@ -1083,9 +1258,32 @@ const getAdminSettings = async (adminId) => {
 
   return {
     account: {
-      email: (await prisma.user.findUnique({ where: { id: adminId }, select: { email: true } })).email,
+      adminId: admin.id,
+      fullName: admin.name,
+      email: admin.email,
+      gender: admin.gender,
+      role: admin.role,
+      phoneNumber: admin.phone,
+      birthDate: formatDate(admin.birthDate),
+      joinedAt: formatDateTime(admin.createdAt),
+      createdAt: formatDateTime(admin.createdAt),
+      avatarUrl: admin.avatarUrl,
       twoFactorEnabled: settings.twoFactorEnabled,
     },
+    profile: {
+      adminId: admin.id,
+      fullName: admin.name,
+      email: admin.email,
+      gender: admin.gender,
+      role: admin.role,
+      phoneNumber: admin.phone,
+      birthDate: formatDate(admin.birthDate),
+      joinedAt: formatDateTime(admin.createdAt),
+      createdAt: formatDateTime(admin.createdAt),
+      avatarUrl: admin.avatarUrl,
+      twoFactorEnabled: settings.twoFactorEnabled,
+    },
+    twoFactorEnabled: settings.twoFactorEnabled,
     notifications: {
       emailNotifications: settings.emailNotifications,
       verificationAlerts: settings.verificationAlerts,
@@ -1400,6 +1598,7 @@ module.exports = {
   getDoctorVerificationRequests,
   approveDoctorRequest,
   rejectDoctorRequest,
+  updateDoctorLicense,
 
   // Profile
   getAdminProfile,

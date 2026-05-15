@@ -3,11 +3,28 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const registerUser = async (userData) => {
-  const { name, email, password, phone, role, gender, birthDate } = userData;
+  const {
+    email,
+    password,
+    role,
+    gender,
+    birthDate,
+    specialization,
+    clinicId,
+  } = userData;
+
+  const name = userData.name || userData.fullName;
+  const phone = userData.phone || userData.phoneNumber;
+  const practitionerLicense = userData.practitionerLicense || userData.licenseNumber;
+  const assignedRole = role || 'patient';
 
   // 1. Validasi input wajib
   if (!name || !email || !password || !gender) {
     throw new Error("name, email, password, dan gender harus disediakan");
+  }
+
+  if (assignedRole === 'doctor' && (!specialization || !practitionerLicense)) {
+    throw new Error("specialization dan licenseNumber harus disediakan untuk register doctor");
   }
 
   // 2. Cek email unik sebelum memproses lebih jauh
@@ -16,7 +33,6 @@ const registerUser = async (userData) => {
 
   // 3. Persiapan data
   const hashedPassword = await bcrypt.hash(password, 10);
-  const assignedRole = role || 'patient';
   
   // Pastikan gender sesuai enum (male/female)
   const normalizedGender = gender.toLowerCase();
@@ -34,15 +50,22 @@ const registerUser = async (userData) => {
     gender: normalizedGender,
     phone: phone || undefined,
     birthDate: birthDate ? new Date(birthDate) : undefined,
-    status: 'active', // Berikan nilai eksplisit untuk menghindari bug default di beberapa versi DB
+    status: assignedRole === 'doctor' ? 'pending' : 'active',
   };
 
   // 5. Tambahkan nested create profil secara dinamis
   if (assignedRole === 'patient') {
     prismaData.patientProfile = { create: {} };
   } else if (assignedRole === 'doctor') {
-    // Di schema baru, semua field DoctorProfile opsional/default
-    prismaData.doctorProfile = { create: {} };
+    prismaData.doctorProfile = {
+      create: {
+        clinicId: clinicId || undefined,
+        verificationStatus: 'pending',
+        practitionerLicense: practitionerLicense.trim(),
+        licenseFile: userData.medicalLicense || undefined,
+        specialization: specialization.trim(),
+      },
+    };
   } 
 
   try {
@@ -54,7 +77,18 @@ const registerUser = async (userData) => {
         email: true, 
         role: true, 
         status: true,
-        createdAt: true 
+        createdAt: true,
+        doctorProfile: {
+          select: {
+            id: true,
+            clinicId: true,
+            verificationStatus: true,
+            practitionerLicense: true,
+            licenseFile: true,
+            specialization: true,
+            joinedAt: true,
+          },
+        },
       }
     });
   } catch (error) {
