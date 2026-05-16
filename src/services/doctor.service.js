@@ -675,6 +675,39 @@ const updateProfilePhoto = async (userId, photoPath) => {
 
 // ==================== SETTINGS SERVICES ====================
 
+const getDoctorProfileOrThrow = async (userId) => {
+  const doctorProfile = await prisma.doctorProfile.findUnique({
+    where: { userId }
+  });
+
+  if (!doctorProfile) {
+    throw new Error('Doctor profile not found');
+  }
+
+  return doctorProfile;
+};
+
+const getOrCreateDoctorSettings = async (doctorId) => {
+  const existingSettings = await prisma.doctorSettings.findUnique({
+    where: { doctorId }
+  });
+
+  if (existingSettings) {
+    return existingSettings;
+  }
+
+  return prisma.doctorSettings.create({
+    data: {
+      doctorId,
+      twoFactorEnabled: false,
+      emailNotifications: true,
+      verificationAlerts: true,
+      dataVisibility: 'restricted_clinical_team_only',
+      language: 'English (US)'
+    }
+  });
+};
+
 /**
  * Get doctor settings
  */
@@ -688,17 +721,8 @@ const getDoctorSettings = async (userId) => {
       throw new Error('User is not a doctor');
     }
 
-    const doctorProfile = await prisma.doctorProfile.findUnique({
-      where: { userId }
-    });
-
-    const settings = await prisma.doctorSettings.findUnique({
-      where: { doctorId: doctorProfile.id }
-    });
-
-    if (!settings) {
-      throw new Error('Settings not found');
-    }
+    const doctorProfile = await getDoctorProfileOrThrow(userId);
+    const settings = await getOrCreateDoctorSettings(doctorProfile.id);
 
     return {
       account: {
@@ -769,13 +793,8 @@ const updateAccountSettings = async (userId, updates) => {
  */
 const update2FASettings = async (userId, enabled) => {
   try {
-    const doctorProfile = await prisma.doctorProfile.findUnique({
-      where: { userId }
-    });
-
-    if (!doctorProfile) {
-      throw new Error('Doctor profile not found');
-    }
+    const doctorProfile = await getDoctorProfileOrThrow(userId);
+    await getOrCreateDoctorSettings(doctorProfile.id);
 
     await prisma.doctorSettings.update({
       where: { doctorId: doctorProfile.id },
@@ -798,13 +817,8 @@ const updateNotificationSettings = async (userId, settings) => {
   try {
     const { emailNotifications, verificationAlerts } = settings;
 
-    const doctorProfile = await prisma.doctorProfile.findUnique({
-      where: { userId }
-    });
-
-    if (!doctorProfile) {
-      throw new Error('Doctor profile not found');
-    }
+    const doctorProfile = await getDoctorProfileOrThrow(userId);
+    await getOrCreateDoctorSettings(doctorProfile.id);
 
     await prisma.doctorSettings.update({
       where: { doctorId: doctorProfile.id },
@@ -830,13 +844,8 @@ const updatePrivacySettings = async (userId, settings) => {
   try {
     const { dataVisibility } = settings;
 
-    const doctorProfile = await prisma.doctorProfile.findUnique({
-      where: { userId }
-    });
-
-    if (!doctorProfile) {
-      throw new Error('Doctor profile not found');
-    }
+    const doctorProfile = await getDoctorProfileOrThrow(userId);
+    await getOrCreateDoctorSettings(doctorProfile.id);
 
     await prisma.doctorSettings.update({
       where: { doctorId: doctorProfile.id },
@@ -859,13 +868,8 @@ const updatePreferences = async (userId, settings) => {
   try {
     const { language } = settings;
 
-    const doctorProfile = await prisma.doctorProfile.findUnique({
-      where: { userId }
-    });
-
-    if (!doctorProfile) {
-      throw new Error('Doctor profile not found');
-    }
+    const doctorProfile = await getDoctorProfileOrThrow(userId);
+    await getOrCreateDoctorSettings(doctorProfile.id);
 
     await prisma.doctorSettings.update({
       where: { doctorId: doctorProfile.id },

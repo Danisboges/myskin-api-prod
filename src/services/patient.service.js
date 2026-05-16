@@ -799,7 +799,7 @@ const updateProfilePhoto = async (userId, fileData) => {
 
 // ==================== SETTINGS MANAGEMENT ====================
 
-const getPatientSettings = async (userId) => {
+const getPatientProfileOrThrow = async (userId) => {
   const patient = await prisma.patientProfile.findUnique({
     where: { userId }
   });
@@ -808,33 +808,40 @@ const getPatientSettings = async (userId) => {
     throw new Error('Patient profile not found');
   }
 
-  const settings = await prisma.patientSettings.findUnique({
-    where: { patientId: patient.id }
+  return patient;
+};
+
+const getOrCreatePatientSettings = async (patientId) => {
+  const existingSettings = await prisma.patientSettings.findUnique({
+    where: { patientId }
   });
 
-  if (!settings) {
-    throw new Error('Patient settings not found');
+  if (existingSettings) {
+    return existingSettings;
   }
 
-  return settings;
+  return prisma.patientSettings.create({
+    data: {
+      patientId,
+      twoFactorEnabled: false,
+      emailNotifications: true,
+      scanNotifications: true,
+      reportNotifications: true,
+      dataVisibility: 'restricted_self_only',
+      language: 'English (US)',
+      theme: 'light'
+    }
+  });
+};
+
+const getPatientSettings = async (userId) => {
+  const patient = await getPatientProfileOrThrow(userId);
+  return getOrCreatePatientSettings(patient.id);
 };
 
 const updateAccountSettings = async (userId, updateData) => {
-  const patient = await prisma.patientProfile.findUnique({
-    where: { userId }
-  });
-
-  if (!patient) {
-    throw new Error('Patient profile not found');
-  }
-
-  const settings = await prisma.patientSettings.findUnique({
-    where: { patientId: patient.id }
-  });
-
-  if (!settings) {
-    throw new Error('Patient settings not found');
-  }
+  const patient = await getPatientProfileOrThrow(userId);
+  const settings = await getOrCreatePatientSettings(patient.id);
 
   const updatedSettings = await prisma.patientSettings.update({
     where: { id: settings.id },
@@ -847,21 +854,8 @@ const updateAccountSettings = async (userId, updateData) => {
 };
 
 const updateNotificationSettings = async (userId, updateData) => {
-  const patient = await prisma.patientProfile.findUnique({
-    where: { userId }
-  });
-
-  if (!patient) {
-    throw new Error('Patient profile not found');
-  }
-
-  const settings = await prisma.patientSettings.findUnique({
-    where: { patientId: patient.id }
-  });
-
-  if (!settings) {
-    throw new Error('Patient settings not found');
-  }
+  const patient = await getPatientProfileOrThrow(userId);
+  const settings = await getOrCreatePatientSettings(patient.id);
 
   const updatedSettings = await prisma.patientSettings.update({
     where: { id: settings.id },
@@ -876,21 +870,8 @@ const updateNotificationSettings = async (userId, updateData) => {
 };
 
 const updatePrivacySettings = async (userId, updateData) => {
-  const patient = await prisma.patientProfile.findUnique({
-    where: { userId }
-  });
-
-  if (!patient) {
-    throw new Error('Patient profile not found');
-  }
-
-  const settings = await prisma.patientSettings.findUnique({
-    where: { patientId: patient.id }
-  });
-
-  if (!settings) {
-    throw new Error('Patient settings not found');
-  }
+  const patient = await getPatientProfileOrThrow(userId);
+  const settings = await getOrCreatePatientSettings(patient.id);
 
   const updatedSettings = await prisma.patientSettings.update({
     where: { id: settings.id },
@@ -903,21 +884,8 @@ const updatePrivacySettings = async (userId, updateData) => {
 };
 
 const updatePreferences = async (userId, updateData) => {
-  const patient = await prisma.patientProfile.findUnique({
-    where: { userId }
-  });
-
-  if (!patient) {
-    throw new Error('Patient profile not found');
-  }
-
-  const settings = await prisma.patientSettings.findUnique({
-    where: { patientId: patient.id }
-  });
-
-  if (!settings) {
-    throw new Error('Patient settings not found');
-  }
+  const patient = await getPatientProfileOrThrow(userId);
+  const settings = await getOrCreatePatientSettings(patient.id);
 
   const updatedSettings = await prisma.patientSettings.update({
     where: { id: settings.id },

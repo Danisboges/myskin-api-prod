@@ -55,7 +55,21 @@ const registerUser = async (userData) => {
 
   // 5. Tambahkan nested create profil secara dinamis
   if (assignedRole === 'patient') {
-    prismaData.patientProfile = { create: {} };
+    prismaData.patientProfile = {
+      create: {
+        settings: {
+          create: {
+            twoFactorEnabled: false,
+            emailNotifications: true,
+            scanNotifications: true,
+            reportNotifications: true,
+            dataVisibility: 'restricted_self_only',
+            language: 'English (US)',
+            theme: 'light',
+          },
+        },
+      },
+    };
   } else if (assignedRole === 'doctor') {
     prismaData.doctorProfile = {
       create: {

@@ -646,6 +646,30 @@ const createUser = async (userData) => {
         specialization: userData.specialization,
         practitionerLicense: userData.licenseNumber,
         licenseFile: userData.medicalLicense || null,
+        settings: {
+          create: {
+            twoFactorEnabled: false,
+            emailNotifications: true,
+            verificationAlerts: true,
+            dataVisibility: "restricted_clinical_team_only",
+            language: "English (US)",
+          },
+        },
+      }
+    : undefined;
+  const patientProfileData = userData.role === "patient"
+    ? {
+        settings: {
+          create: {
+            twoFactorEnabled: false,
+            emailNotifications: true,
+            scanNotifications: true,
+            reportNotifications: true,
+            dataVisibility: "restricted_self_only",
+            language: "English (US)",
+            theme: "light",
+          },
+        },
       }
     : undefined;
 
@@ -662,6 +686,11 @@ const createUser = async (userData) => {
       ...(doctorProfileData && {
         doctorProfile: {
           create: doctorProfileData,
+        },
+      }),
+      ...(patientProfileData && {
+        patientProfile: {
+          create: patientProfileData,
         },
       }),
     },

@@ -155,11 +155,11 @@ const validateReportGeneration = (data) => {
 const validatePaginationParams = (page, limit) => {
   const errors = {};
 
-  if (page && (isNaN(page) || page < 1)) {
+  if (page !== undefined && page !== null && (isNaN(page) || page < 1)) {
     errors.page = "Page must be a positive number";
   }
 
-  if (limit && (isNaN(limit) || limit < 1 || limit > 100)) {
+  if (limit !== undefined && limit !== null && (isNaN(limit) || limit < 1 || limit > 100)) {
     errors.limit = "Limit must be between 1 and 100";
   }
 
