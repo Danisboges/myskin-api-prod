@@ -750,6 +750,43 @@ curl -X PATCH http://localhost:3000/api/v1/patient/profile/photo \
 }
 ```
 
+#### Common Errors
+
+**Status: 400 Bad Request** — Malformed part header
+
+```json
+{
+  "status": "error",
+  "message": "Invalid file upload format. Use multipart/form-data"
+}
+```
+
+**Penyebab:** Anda mengirim request dengan `Content-Type: application/json` atau body JSON biasa. 
+
+**Solusi:** Gunakan `multipart/form-data` dan kirim file dengan form field `photo`:
+```bash
+# ✓ BENAR - Menggunakan -F untuk multipart/form-data
+curl -X PATCH http://localhost:3000/api/v1/patient/profile/photo \
+  -H "Authorization: Bearer {token}" \
+  -F "photo=@/path/to/image.jpg"
+
+# ✗ SALAH - Jangan gunakan -d dengan JSON
+curl -X PATCH http://localhost:3000/api/v1/patient/profile/photo \
+  -H "Authorization: Bearer {token}" \
+  -d '{"photo": "..."}'
+```
+
+**Status: 400 Bad Request** — Photo file is required
+
+```json
+{
+  "status": "error",
+  "message": "Photo file is required"
+}
+```
+
+**Penyebab:** Request tidak mengirim file dalam field `photo`.
+
 ---
 
 ## Settings

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const doctorController = require('../controllers/doctor.controller');
 const { verifyToken, isDoctor } = require('../middlewares/auth.middleware');
-const upload = require('../middlewares/upload.middleware');
+const { uploadSingleFile } = require('../middlewares/upload.middleware');
 
 // ==================== DASHBOARD ROUTES ====================
 
@@ -74,7 +74,7 @@ router.patch('/profile', verifyToken, isDoctor, doctorController.updateDoctorPro
  * PATCH /api/v1/doctor/profile/photo
  * Update doctor profile photo
  */
-router.patch('/profile/photo', verifyToken, isDoctor, upload.single('photo'), doctorController.updateProfilePhoto);
+router.patch('/profile/photo', verifyToken, isDoctor, uploadSingleFile('photo'), doctorController.updateProfilePhoto);
 
 // ==================== SETTINGS ROUTES ====================
 

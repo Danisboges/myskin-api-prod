@@ -352,6 +352,14 @@ const updateProfile = async (req, res) => {
 
 const updateProfilePhoto = async (req, res) => {
   try {
+    // Validasi bahwa file ada
+    if (!req.file) {
+      return res.status(400).json({
+        status: "error",
+        message: "No file provided. Please upload a photo."
+      });
+    }
+
     const result = await patientService.updateProfilePhoto(req.user.id, req.file);
     
     res.status(200).json({
@@ -360,9 +368,32 @@ const updateProfilePhoto = async (req, res) => {
     });
   } catch (err) {
     console.error("Error updateProfilePhoto:", err.message);
+    
+    // Handle specific errors
+    if (err.message.includes('not found')) {
+      return res.status(404).json({
+        status: "error",
+        message: "Patient profile not found"
+      });
+    }
+    
+    if (err.message.includes('Invalid file type')) {
+      return res.status(400).json({
+        status: "error",
+        message: err.message
+      });
+    }
+
+    if (err.message.includes('No file') || err.message.includes('empty')) {
+      return res.status(400).json({
+        status: "error",
+        message: err.message
+      });
+    }
+
     res.status(500).json({
       status: "error",
-      message: err.message
+      message: "Failed to update profile photo: " + err.message
     });
   }
 };

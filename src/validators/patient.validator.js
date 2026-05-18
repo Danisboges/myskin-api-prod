@@ -121,6 +121,14 @@ const validateProfilePhotoUpdate = (req, res, next) => {
     });
   }
 
+  // Validasi ukuran minimum (minimal 1KB)
+  if (req.file.size < 1024) {
+    return res.status(400).json({
+      status: "error",
+      message: "File size is too small (minimum 1KB)"
+    });
+  }
+
   // Validasi tipe file
   const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
   if (!allowedMimes.includes(req.file.mimetype)) {
@@ -130,11 +138,12 @@ const validateProfilePhotoUpdate = (req, res, next) => {
     });
   }
 
-  // Validasi ukuran file (max 5MB untuk profile photo)
-  if (req.file.size > 5 * 1024 * 1024) {
+  // Validasi ukuran maksimal (max 5MB untuk profile photo)
+  const maxFileSize = 5 * 1024 * 1024; // 5MB
+  if (req.file.size > maxFileSize) {
     return res.status(400).json({
       status: "error",
-      message: "File size must not exceed 5MB"
+      message: `File size must not exceed 5MB (current: ${(req.file.size / 1024 / 1024).toFixed(2)}MB)`
     });
   }
 

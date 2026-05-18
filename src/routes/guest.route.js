@@ -9,7 +9,7 @@
 const express = require('express');
 const router = express.Router();
 const guestController = require('../controllers/guest.controller');
-const upload = require('../middlewares/upload.middleware');
+const { uploadSingleFile } = require('../middlewares/upload.middleware');
 
 // ==================== GUEST SCAN ====================
 
@@ -21,7 +21,7 @@ const upload = require('../middlewares/upload.middleware');
  */
 router.post(
   '/scan',
-  upload.single('image'),
+  uploadSingleFile('image'),
   guestController.scanImage
 );
 

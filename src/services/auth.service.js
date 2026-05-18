@@ -55,7 +55,14 @@ const registerUser = async (userData) => {
 
   // 5. Tambahkan nested create profil secara dinamis
   if (assignedRole === 'patient') {
-    prismaData.patientProfile = { create: {} };
+    prismaData.patientProfile = { 
+      create: {
+        // Masukkan pengaturan (settings) DI DALAM profil pasien
+        settings: {
+          create: {}
+        }
+      } 
+    };
   } else if (assignedRole === 'doctor') {
     prismaData.doctorProfile = {
       create: {
@@ -66,7 +73,7 @@ const registerUser = async (userData) => {
         specialization: specialization.trim(),
       },
     };
-  } 
+  }
 
   try {
     return await prisma.user.create({
@@ -77,18 +84,7 @@ const registerUser = async (userData) => {
         email: true, 
         role: true, 
         status: true,
-        createdAt: true,
-        doctorProfile: {
-          select: {
-            id: true,
-            clinicId: true,
-            verificationStatus: true,
-            practitionerLicense: true,
-            licenseFile: true,
-            specialization: true,
-            joinedAt: true,
-          },
-        },
+        createdAt: true, 
       }
     });
   } catch (error) {
