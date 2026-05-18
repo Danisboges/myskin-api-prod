@@ -4,7 +4,8 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs'); // Untuk auto-create folder uploads
 const userRoutes = require('./src/routes/auth.route');
-const detectionRoutes = require('./src/routes/detection.route');
+// const detectionRoutes = require('./src/routes/detection.route');
+const guestRoutes = require('./src/routes/guest.route');
 const userManagementRoutes = require("./src/routes/userManagement.route");
 const doctorRoutes = require('./src/routes/doctor.route');
 const adminRoutes = require('./src/routes/admin.route');
@@ -74,7 +75,8 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // 5. ROUTES
 app.use('/api/auth', userRoutes);
-app.use('/api/detection', detectionRoutes);
+app.use('/api/guest', guestRoutes);
+// app.use('/api/detection', detectionRoutes);
 app.use("/api/user", userManagementRoutes);
 app.use('/api/v1/doctor', doctorRoutes);
 app.use('/api/v1/admin', adminRoutes);

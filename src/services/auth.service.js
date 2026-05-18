@@ -69,43 +69,27 @@ const registerUser = async (userData) => {
   } 
 
   try {
-    // Build select statement conditionally based on role
-    const selectStatement = { 
-      id: true, 
-      name: true, 
-      email: true, 
-      role: true, 
-      status: true,
-      createdAt: true,
-    };
-
-    // Only select doctorProfile if role is doctor
-    if (assignedRole === 'doctor') {
-      selectStatement.doctorProfile = {
-        select: {
-          id: true,
-          clinicId: true,
-          verificationStatus: true,
-          practitionerLicense: true,
-          licenseFile: true,
-          specialization: true,
-          joinedAt: true,
-        },
-      };
-    }
-
-    // Only select patientProfile if role is patient
-    if (assignedRole === 'patient') {
-      selectStatement.patientProfile = {
-        select: {
-          id: true,
-        },
-      };
-    }
-
     return await prisma.user.create({
       data: prismaData,
-      select: selectStatement,
+      select: { 
+        id: true, 
+        name: true, 
+        email: true, 
+        role: true, 
+        status: true,
+        createdAt: true,
+        doctorProfile: {
+          select: {
+            id: true,
+            clinicId: true,
+            verificationStatus: true,
+            practitionerLicense: true,
+            licenseFile: true,
+            specialization: true,
+            joinedAt: true,
+          },
+        },
+      }
     });
   } catch (error) {
     // Jika masih error 'not available', kemungkinan besar DB belum di-migrate reset
