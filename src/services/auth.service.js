@@ -23,10 +23,6 @@ const registerUser = async (userData) => {
     throw new Error("name, email, password, dan gender harus disediakan");
   }
 
-  if (assignedRole === 'doctor' && (!specialization || !practitionerLicense)) {
-    throw new Error("specialization dan licenseNumber harus disediakan untuk register doctor");
-  }
-
   // 2. Cek email unik sebelum memproses lebih jauh
   const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
   if (existingUser) throw new Error("Email sudah terdaftar");
@@ -68,10 +64,17 @@ const registerUser = async (userData) => {
       create: {
         clinicId: clinicId || undefined,
         verificationStatus: 'pending',
-        practitionerLicense: practitionerLicense.trim(),
+        practitionerLicense: practitionerLicense ? practitionerLicense.trim() : undefined,
         licenseFile: userData.medicalLicense || undefined,
-        specialization: specialization.trim(),
+        specialization: specialization ? specialization.trim() : undefined,
+        settings: {
+          create: {}
+        }
       },
+    };
+  } else if (assignedRole === 'admin') {
+    prismaData.adminSettings = {
+      create: {}
     };
   }
 
