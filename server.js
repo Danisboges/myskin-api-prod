@@ -10,6 +10,7 @@ const userManagementRoutes = require("./src/routes/userManagement.route");
 const doctorRoutes = require('./src/routes/doctor.route');
 const adminRoutes = require('./src/routes/admin.route');
 const patientRoutes = require('./src/routes/patient.route');
+const consultationRoutes = require('./src/routes/consultation.route');
 
 const app = express();
 const adminUiDir = path.join(__dirname, 'public', 'admin');
@@ -81,6 +82,8 @@ app.use("/api/user", userManagementRoutes);
 app.use('/api/v1/doctor', doctorRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/patient', patientRoutes);
+app.use('/api/v1/patient/consultations', consultationRoutes);
+app.use('/api/v1/doctor/consultations', consultationRoutes);
 
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(adminUiDir, 'index.html'));
