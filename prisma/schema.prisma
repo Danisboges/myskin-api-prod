@@ -81,10 +81,11 @@ model User {
   id        String     @id @default(uuid())
   name      String
   email     String     @unique
+  googleId  String?    @unique
   password  String
   phone     String?
   role      Role       @default(patient)
-  gender    Gender
+  gender    Gender?
   birthDate DateTime?
   status    UserStatus @default(active)
   avatarUrl String?
