@@ -25,10 +25,6 @@ const registerUser = async (userData) => {
     throw new Error("name, email, password, dan gender harus disediakan");
   }
 
-  if (assignedRole === 'doctor' && (!specialization || !practitionerLicense)) {
-    throw new Error("specialization dan licenseNumber harus disediakan untuk register doctor");
-  }
-
   // 2. Cek email unik sebelum memproses lebih jauh
   const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
   if (existingUser) throw new Error("Email sudah terdaftar");
@@ -77,51 +73,31 @@ const registerUser = async (userData) => {
       create: {
         clinicId: clinicId || undefined,
         verificationStatus: 'pending',
-        practitionerLicense: practitionerLicense.trim(),
+        practitionerLicense: practitionerLicense ? practitionerLicense.trim() : undefined,
         licenseFile: userData.medicalLicense || undefined,
-        specialization: specialization.trim(),
+        specialization: specialization ? specialization.trim() : undefined,
+        settings: {
+          create: {}
+        }
       },
     };
-  } 
+  } else if (assignedRole === 'admin') {
+    prismaData.adminSettings = {
+      create: {}
+    };
+  }
 
   try {
-    // Build select statement conditionally based on role
-    const selectStatement = { 
-      id: true, 
-      name: true, 
-      email: true, 
-      role: true, 
-      status: true,
-      createdAt: true,
-    };
-
-    // Only select doctorProfile if role is doctor
-    if (assignedRole === 'doctor') {
-      selectStatement.doctorProfile = {
-        select: {
-          id: true,
-          clinicId: true,
-          verificationStatus: true,
-          practitionerLicense: true,
-          licenseFile: true,
-          specialization: true,
-          joinedAt: true,
-        },
-      };
-    }
-
-    // Only select patientProfile if role is patient
-    if (assignedRole === 'patient') {
-      selectStatement.patientProfile = {
-        select: {
-          id: true,
-        },
-      };
-    }
-
     return await prisma.user.create({
       data: prismaData,
-      select: selectStatement,
+      select: { 
+        id: true, 
+        name: true, 
+        email: true, 
+        role: true, 
+        status: true,
+        createdAt: true, 
+      }
     });
   } catch (error) {
     // Jika masih error 'not available', kemungkinan besar DB belum di-migrate reset

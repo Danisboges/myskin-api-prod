@@ -9,7 +9,7 @@ const express = require('express');
 const router = express.Router();
 const patientController = require('../controllers/patient.controller');
 const { verifyToken, isPatient } = require('../middlewares/auth.middleware');
-const upload = require('../middlewares/upload.middleware');
+const { upload, uploadSingleFile, handleUploadError } = require('../middlewares/upload.middleware');
 const {
   validateScanUpload,
   validateScanAnalyze,
@@ -42,7 +42,7 @@ router.get('/dashboard', patientController.getDashboard);
  */
 router.post(
   '/scans/upload',
-  upload.single('image'),
+  uploadSingleFile('image'),
   validateScanUpload,
   patientController.uploadScan
 );
@@ -182,7 +182,7 @@ router.patch(
  */
 router.patch(
   '/profile/photo',
-  upload.single('photo'),
+  uploadSingleFile('photo'),
   validateProfilePhotoUpdate,
   patientController.updateProfilePhoto
 );

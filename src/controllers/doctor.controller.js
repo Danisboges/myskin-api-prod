@@ -1,4 +1,7 @@
 const doctorService = require('../services/doctor.service');
+const fs = require('fs');
+const path = require('path');
+
 
 const parsePositiveInteger = (value, fallback) => {
   const parsed = Number.parseInt(value, 10);
@@ -420,9 +423,27 @@ const updateProfilePhoto = async (req, res) => {
       });
     }
 
-    // Build the photo path
-    const photoPath = `/uploads/doctors/${req.file.filename}`;
+    // 1. Buat nama file unik secara manual (karena memoryStorage tidak membuatkan nama file)
+    const ekstensi = req.file.originalname.split('.').pop();
+    const filename = `doctor_${userId}_${Date.now()}.${ekstensi}`;
 
+    // 2. Tentukan lokasi folder penyimpanan (pastikan path ini sesuai dengan struktur foldermu)
+    // Asumsi controller ada di src/controllers/, maka kita naik 2 tingkat (../../) ke root
+    const uploadDir = path.join(__dirname, '../../uploads/doctors'); 
+    const filepath = path.join(uploadDir, filename);
+
+    // 3. Cek apakah folder uploads/doctors sudah ada, jika belum buat otomatis
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    // 4. SIMPAN FILE KE HARDISK (Tulis data buffer dari RAM ke folder fisik)
+    fs.writeFileSync(filepath, req.file.buffer);
+
+    // 5. Build path foto untuk disimpan ke database
+    const photoPath = `/uploads/doctors/${filename}`;
+
+    // 6. Panggil service untuk update database
     const result = await doctorService.updateProfilePhoto(userId, photoPath);
 
     res.status(200).json({

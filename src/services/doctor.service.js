@@ -255,7 +255,23 @@ const saveObservation = async (caseId, doctorId, observation) => {
 const approveCase = async (caseId, doctorId, physicianObservation, finalDiagnosis) => {
   try {
     const caseReview = await prisma.caseReview.findUnique({
-      where: { caseId }
+      where: { caseId },
+      include: {
+        scan: {
+          include: {
+            patient: {
+              include: {
+                user: { select: { name: true } }
+              }
+            }
+          }
+        },
+        doctor: {
+          include: {
+            user: { select: { name: true } }
+          }
+        }
+      }
     });
 
     if (!caseReview) {
@@ -281,6 +297,20 @@ const approveCase = async (caseId, doctorId, physicianObservation, finalDiagnosi
       }
     });
 
+    // ===== NOTIFIKASI KE PATIENT =====
+    // Import createPatientNotification dari patient service
+    const patientService = require('./patient.service');
+    const patientId = caseReview.scan.patient.id;
+    const patientName = caseReview.scan.patient.user.name;
+    const doctorName = doctorProfile.user?.name || 'A doctor';
+
+    await patientService.createPatientNotification(
+      patientId,
+      'Case Review Completed',
+      `Dr. ${doctorName} has approved and completed the review of your scan (Case ID: ${caseId}). Check your dashboard for the diagnosis.`,
+      'scan_complete'
+    );
+
     return {
       success: true,
       message: 'Case approved successfully',
@@ -297,7 +327,23 @@ const approveCase = async (caseId, doctorId, physicianObservation, finalDiagnosi
 const rejectCase = async (caseId, doctorId, reason, physicianObservation, finalDiagnosis) => {
   try {
     const caseReview = await prisma.caseReview.findUnique({
-      where: { caseId }
+      where: { caseId },
+      include: {
+        scan: {
+          include: {
+            patient: {
+              include: {
+                user: { select: { name: true } }
+              }
+            }
+          }
+        },
+        doctor: {
+          include: {
+            user: { select: { name: true } }
+          }
+        }
+      }
     });
 
     if (!caseReview) {
@@ -323,6 +369,19 @@ const rejectCase = async (caseId, doctorId, reason, physicianObservation, finalD
         reviewedAt: new Date()
       }
     });
+
+    // ===== NOTIFIKASI KE PATIENT =====
+    const patientService = require('./patient.service');
+    const patientId = caseReview.scan.patient.id;
+    const patientName = caseReview.scan.patient.user.name;
+    const doctorName = doctorProfile.user?.name || 'A doctor';
+
+    await patientService.createPatientNotification(
+      patientId,
+      'Case Review Rejected',
+      `Dr. ${doctorName} has rejected the review of your scan (Case ID: ${caseId}). Reason: ${reason}. You may resubmit if needed.`,
+      'verification_alert'
+    );
 
     return {
       success: true,

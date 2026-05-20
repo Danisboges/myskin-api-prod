@@ -13,7 +13,7 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-const upload = multer({ 
+const uploadInstance = multer({ 
   storage: storage,
   fileFilter: fileFilter,
   limits: {
@@ -21,4 +21,56 @@ const upload = multer({
   }
 });
 
-module.exports = upload;
+// Wrapper untuk single file upload dengan error handling
+const uploadSingleFile = (fieldName) => {
+  return (req, res, next) => {
+    uploadInstance.single(fieldName)(req, res, (err) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({
+            status: 'error',
+            message: 'File size exceeds 5MB limit'
+          });
+        }
+        return res.status(400).json({
+          status: 'error',
+          message: `Upload error: ${err.message}`
+        });
+      } else if (err) {
+        return res.status(400).json({
+          status: 'error',
+          message: err.message || 'Invalid file upload format. Use multipart/form-data with correct field name'
+        });
+      }
+      next();
+    });
+  };
+};
+
+// Legacy error handler untuk kompatibilitas
+const handleUploadError = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'File size exceeds 5MB limit'
+      });
+    }
+    return res.status(400).json({
+      status: 'error',
+      message: `Upload error: ${err.message}`
+    });
+  } else if (err) {
+    return res.status(400).json({
+      status: 'error',
+      message: err.message || 'Invalid file upload format. Use multipart/form-data'
+    });
+  }
+  next();
+};
+
+module.exports = { 
+  upload: uploadInstance,
+  uploadSingleFile,
+  handleUploadError
+};

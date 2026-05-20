@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const adminController = require("../controllers/admin.controller");
 const { verifyToken, isAdmin } = require("../middlewares/auth.middleware");
-const uploadMiddleware = require("../middlewares/upload.middleware");
+const { uploadSingleFile } = require("../middlewares/upload.middleware");
 const uploadMedicalLicense = require("../middlewares/medical-license.middleware");
 
 // ==================== DASHBOARD ROUTES ====================
@@ -84,7 +84,7 @@ router.get("/profile", verifyToken, isAdmin, adminController.getAdminProfile);
 router.patch("/profile", verifyToken, isAdmin, adminController.updateAdminProfile);
 
 // PATCH /api/v1/admin/profile/photo
-router.patch("/profile/photo", verifyToken, isAdmin, uploadMiddleware.single("photo"), adminController.updateAdminPhoto);
+router.patch("/profile/photo", verifyToken, isAdmin, uploadSingleFile("photo"), adminController.updateAdminPhoto);
 
 // GET /api/v1/admin/verification-status
 router.get("/verification-status", verifyToken, isAdmin, adminController.getVerificationStatus);

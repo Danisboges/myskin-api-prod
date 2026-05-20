@@ -445,6 +445,52 @@ const getScanDetail = async (userId, scanId, doctorUserId = null) => {
   return scan;
 };
 
+// ==================== HELPER FUNCTIONS ====================
+
+/**
+ * Helper: Create notification untuk doctor
+ */
+const createDoctorNotification = async (doctorId, title, message, type = 'case_request') => {
+  try {
+    await prisma.notification.create({
+      data: {
+        doctorId,
+        notificationId: `ND-${Date.now()}`,
+        title,
+        message,
+        type,
+        isRead: false
+      }
+    });
+  } catch (err) {
+    console.error('Error creating doctor notification:', err.message);
+    // Jangan throw, notifikasi gagal tidak boleh menggagalkan operasi utama
+  }
+};
+
+/**
+ * Helper: Create notification untuk patient
+ */
+const createPatientNotification = async (patientId, title, message, type = 'system_message') => {
+  try {
+    await prisma.patientNotification.create({
+      data: {
+        patientId,
+        notificationId: `PN-${Date.now()}`,
+        title,
+        message,
+        type,
+        isRead: false
+      }
+    });
+  } catch (err) {
+    console.error('Error creating patient notification:', err.message);
+    // Jangan throw, notifikasi gagal tidak boleh menggagalkan operasi utama
+  }
+};
+
+// ==================== SCAN MANAGEMENT ====================
+
 const shareScanWithDoctor = async (userId, scanId, doctorUserId) => {
   const patient = await prisma.patientProfile.findUnique({
     where: { userId },
@@ -470,7 +516,7 @@ const shareScanWithDoctor = async (userId, scanId, doctorUserId) => {
     where: { userId: doctorUserId },
     include: {
       user: {
-        select: { role: true }
+        select: { role: true, name: true }
       }
     }
   });
@@ -495,7 +541,7 @@ const shareScanWithDoctor = async (userId, scanId, doctorUserId) => {
     }
   });
 
-  // Jika ini adalah share pertama, buat CaseReview dan CaseAssignment
+  // Jika ini adalah share pertama, buat CaseReview dan CaseAssignment + Notifikasi
   if (isNewShare) {
     // Calculate patient age
     const birthDate = patient.user.birthDate ? new Date(patient.user.birthDate) : null;
@@ -516,12 +562,12 @@ const shareScanWithDoctor = async (userId, scanId, doctorUserId) => {
         data: {
           caseId,
           scanId: scan.id,
-          doctorId: doctor.id, // <-- PERBAIKAN 1: Memasukkan ID Dokter ke sini
+          doctorId: doctor.id,
           reviewStatus: 'pending_review'
         }
       });
     } else if (!caseReview.doctorId) {
-      // <-- PERBAIKAN 2: Jika CaseReview sudah ada tapi doctorId masih NULL (kasus lama), maka update!
+      // Jika CaseReview sudah ada tapi doctorId masih NULL, maka update!
       caseReview = await prisma.caseReview.update({
         where: { id: caseReview.id },
         data: { doctorId: doctor.id }
@@ -542,6 +588,14 @@ const shareScanWithDoctor = async (userId, scanId, doctorUserId) => {
         throw err;
       }
     }
+
+    // ===== NOTIFIKASI KE DOCTOR =====
+    await createDoctorNotification(
+      doctor.id,
+      'New Scan Shared',
+      `Patient ${patient.user.name} has shared a scan with you. Case ID: ${caseReview.caseId}`,
+      'case_request'
+    );
   }
 
   return {
@@ -550,7 +604,7 @@ const shareScanWithDoctor = async (userId, scanId, doctorUserId) => {
     sharedWith: JSON.parse(updatedScan.sharedWith),
     message: 'Scan shared with doctor successfully'
   };
-}
+};
 
 // ==================== REPORT MANAGEMENT ====================
 
@@ -757,47 +811,91 @@ const updatePatientProfile = async (userId, updateData) => {
 };
 
 const updateProfilePhoto = async (userId, fileData) => {
-  const patient = await prisma.patientProfile.findUnique({
-    where: { userId }
-  });
+  try {
+    // Validasi awal fileData
+    if (!fileData) {
+      throw new Error('No file provided');
+    }
 
-  if (!patient) {
-    throw new Error('Patient profile not found');
-  }
+    if (!fileData.buffer) {
+      throw new Error('File buffer is missing');
+    }
 
-  // Save file
-  const filename = `profile_${userId}_${Date.now()}.${fileData.originalname.split('.').pop()}`;
-  const uploadDir = path.join(__dirname, '../../uploads');
-  const filepath = path.join(uploadDir, filename);
+    if (fileData.size === 0) {
+      throw new Error('File is empty');
+    }
 
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
+    // 1. Cek apakah User tersebut ada di database
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
 
-  fs.writeFileSync(filepath, fileData.buffer);
+    if (!user) {
+      throw new Error('User not found');
+    }
 
-  // Update patient profile
-  const updatedPatient = await prisma.patientProfile.update({
-    where: { id: patient.id },
-    data: {
-      profilePhotoUrl: `/uploads/${filename}`
-    },
-    include: {
-      user: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          phone: true
+    // 2. Generate nama file unik
+    const fileExtension = fileData.originalname.split('.').pop().toLowerCase();
+    const validExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+    
+    if (!validExtensions.includes(fileExtension)) {
+      throw new Error(`Invalid file type. Allowed: ${validExtensions.join(', ')}`);
+    }
+
+    const filename = `profile_${userId}_${Date.now()}.${fileExtension}`;
+    
+    // 3. Tentukan direktori penyimpanan
+    const uploadDir = path.join(__dirname, '../../uploads/patient-profile');
+    const filepath = path.join(uploadDir, filename);
+
+    // Buat folder jika belum tersedia
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    // 4. Hapus foto lama dari storage jika sebelumnya sudah pernah upload
+    // PENTING: Ganti 'avatarUrl' dengan nama kolom asli di tabel User Anda jika berbeda
+    const currentPhotoPath = user.avatarUrl || user.profilePhotoUrl;
+    if (currentPhotoPath) {
+      const oldFilePath = path.join(__dirname, '../../', currentPhotoPath);
+      try {
+        if (fs.existsSync(oldFilePath)) {
+          fs.unlinkSync(oldFilePath);
         }
+      } catch (err) {
+        console.warn('Warning: Could not delete old photo file:', err.message);
       }
     }
-  });
 
-  return {
-    profilePhotoUrl: updatedPatient.profilePhotoUrl,
-    message: 'Profile photo updated successfully'
-  };
+    // 5. Simpan file foto baru secara fisik ke server
+    fs.writeFileSync(filepath, fileData.buffer);
+
+    // 6. UPDATE DATABASE DI TABEL USER
+    // PENTING: Ganti 'avatarUrl' di bawah sesuai nama kolom di model User Anda
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        avatarUrl: `/uploads/patient-profile/${filename}` 
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        avatarUrl: true // Sesuaikan namanya dengan kolom Anda
+      }
+    });
+
+    return {
+      profilePhotoUrl: updatedUser.avatarUrl || updatedUser.profilePhotoUrl,
+      message: 'Profile photo updated successfully',
+      fileName: filename,
+      fileSize: fileData.size
+    };
+  } catch (err) {
+    console.error('Error in updateProfilePhoto:', err.message);
+    throw err;
+  }
 };
 
 // ==================== SETTINGS MANAGEMENT ====================
@@ -1036,16 +1134,12 @@ const submitVerificationRequest = async (userId, message) => {
   });
 
   // Create notification untuk patient
-  await prisma.patientNotification.create({
-    data: {
-      notificationId: `PN-${Date.now()}`,
-      patientId: patient.id,
-      title: 'Verification Request Submitted',
-      message: 'Your request for doctor verification has been submitted',
-      type: 'system_message',
-      relatedVerificationId: verificationRequest.id
-    }
-  });
+  await createPatientNotification(
+    patient.id,
+    'Verification Request Submitted',
+    'Your request for doctor verification has been submitted. You will be notified once a doctor accepts.',
+    'verification_alert'
+  );
 
   return {
     requestId: verificationRequest.requestId,
@@ -1079,5 +1173,8 @@ module.exports = {
   markNotificationAsRead,
   markAllNotificationsAsRead,
   getAvailableDoctors,
-  submitVerificationRequest
+  submitVerificationRequest,
+  // Helper functions untuk notifikasi
+  createDoctorNotification,
+  createPatientNotification
 };
