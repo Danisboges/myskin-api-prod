@@ -4,7 +4,108 @@
  * Includes: create consultation, send messages, close consultation
  */
 
+const fs = require('fs');
+const path = require('path');
 const prisma = require('../config/prisma');
+const { publishConsultationEvent } = require('./consultation-events.service');
+
+const CHAT_ATTACHMENT_DIR = path.join(__dirname, '../../uploads/chat-attachments');
+const CHAT_ATTACHMENT_URL_PREFIX = '/uploads/chat-attachments';
+
+const ensureAttachmentDir = () => {
+  if (!fs.existsSync(CHAT_ATTACHMENT_DIR)) {
+    fs.mkdirSync(CHAT_ATTACHMENT_DIR, { recursive: true });
+  }
+};
+
+const safeFileName = (name = 'attachment') => (
+  name
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 120) || 'attachment'
+);
+
+const saveMessageAttachments = (files = []) => {
+  if (!files.length) {
+    return [];
+  }
+
+  ensureAttachmentDir();
+
+  return files.map((file) => {
+    const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}-${safeFileName(file.originalname)}`;
+    const filepath = path.join(CHAT_ATTACHMENT_DIR, filename);
+    fs.writeFileSync(filepath, file.buffer);
+
+    return {
+      url: `${CHAT_ATTACHMENT_URL_PREFIX}/${filename}`,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size
+    };
+  });
+};
+
+const mapAttachment = (attachment) => ({
+  id: attachment.id,
+  url: attachment.url,
+  fileName: attachment.fileName,
+  mimeType: attachment.mimeType,
+  size: attachment.size,
+  createdAt: attachment.createdAt
+});
+
+const mapChatMessage = (chatMessage) => ({
+  id: chatMessage.id,
+  message: chatMessage.message,
+  sender: chatMessage.sender,
+  senderRole: chatMessage.sender?.role || null,
+  timestamp: chatMessage.timestamp,
+  createdAt: chatMessage.timestamp,
+  consultationId: chatMessage.consultationId,
+  attachments: (chatMessage.attachments || []).map(mapAttachment)
+});
+
+const buildConsultationSubject = (consultation) => {
+  const scan = consultation.scan || {};
+  if (scan.complaint) {
+    return scan.complaint;
+  }
+  if (scan.bodySite) {
+    return `Consultation for ${scan.bodySite}`;
+  }
+  if (scan.scanId) {
+    return `Consultation for scan ${scan.scanId}`;
+  }
+  return 'Medical consultation';
+};
+
+const isAiTriageRequired = (scan = {}, caseReview = null) => {
+  const prediction = String(scan.aiPrediction || '').toLowerCase();
+  const concerningPrediction = prediction.includes('melanoma') || prediction.includes('malignant');
+  const lowConfidence = typeof scan.aiConfidence === 'number' && scan.aiConfidence < 0.7;
+  const pendingReview = ['pending_review', 'under_review'].includes(caseReview?.reviewStatus);
+
+  return !scan.isAnalyzed || concerningPrediction || lowConfidence || pendingReview;
+};
+
+const buildDateRangeFilter = (startDate, endDate) => {
+  if (!startDate && !endDate) {
+    return undefined;
+  }
+
+  const range = {};
+  if (startDate) {
+    range.gte = startDate;
+  }
+  if (endDate) {
+    const inclusiveEndDate = new Date(endDate);
+    inclusiveEndDate.setHours(23, 59, 59, 999);
+    range.lte = inclusiveEndDate;
+  }
+
+  return range;
+};
 
 // ==================== CONSULTATION MANAGEMENT ====================
 
@@ -20,7 +121,10 @@ const initiateConsultation = async (userId, doctorId, scanId, initialMessage) =>
   try {
     // 1. Validasi bahwa user adalah patient
     const patientProfile = await prisma.patientProfile.findUnique({
-      where: { userId }
+      where: { userId },
+      include: {
+        user: { select: { id: true, name: true, email: true } }
+      }
     });
 
     if (!patientProfile) {
@@ -53,7 +157,7 @@ const initiateConsultation = async (userId, doctorId, scanId, initialMessage) =>
 
     // 4. Cek apakah sudah ada consultation untuk scan ini
     const existingConsultation = await prisma.consultation.findUnique({
-      where: { scanId }
+      where: { scanId: scan.id }
     });
 
     if (existingConsultation) {
@@ -63,7 +167,7 @@ const initiateConsultation = async (userId, doctorId, scanId, initialMessage) =>
     // 5. Create consultation
     const consultation = await prisma.consultation.create({
       data: {
-        scanId,
+        scanId: scan.id,
         patientId: userId,
         doctorId: doctor.userId,
         status: 'OPEN',
@@ -113,9 +217,9 @@ const initiateConsultation = async (userId, doctorId, scanId, initialMessage) =>
  * @param {object} pagination - { page: 1, limit: 10 }
  * @returns {array} List konsultasi dengan pagination
  */
-const getConsultationList = async (userId, role, pagination = {}) => {
+const getConsultationList = async (userId, role, filters = {}) => {
   try {
-    const { page = 1, limit = 10 } = pagination;
+    const { page = 1, limit = 10, search = '', status = '', startDate = null, endDate = null } = filters;
     const skip = (page - 1) * limit;
 
     // Build where clause berdasarkan role
@@ -128,23 +232,102 @@ const getConsultationList = async (userId, role, pagination = {}) => {
       throw new Error('Invalid role');
     }
 
+    if (status) {
+      whereClause.status = status;
+    }
+
+    const dateRange = buildDateRangeFilter(startDate, endDate);
+    if (dateRange) {
+      whereClause.createdAt = dateRange;
+    }
+
+    if (search) {
+      whereClause.OR = [
+        {
+          patient: {
+            is: {
+              name: { contains: search, mode: 'insensitive' }
+            }
+          }
+        },
+        {
+          patient: {
+            is: {
+              email: { contains: search, mode: 'insensitive' }
+            }
+          }
+        },
+        {
+          scan: {
+            is: {
+              scanId: { contains: search, mode: 'insensitive' }
+            }
+          }
+        },
+        {
+          scan: {
+            is: {
+              complaint: { contains: search, mode: 'insensitive' }
+            }
+          }
+        },
+        {
+          scan: {
+            is: {
+              bodySite: { contains: search, mode: 'insensitive' }
+            }
+          }
+        }
+      ];
+    }
+
     // Get consultations dengan pagination
     const consultations = await prisma.consultation.findMany({
       where: whereClause,
       skip,
       take: limit,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { updatedAt: 'desc' },
       include: {
         patient: { select: { id: true, name: true, email: true, avatarUrl: true } },
         doctor: { select: { id: true, name: true, email: true, avatarUrl: true } },
-        scan: { select: { scanId: true, imageUrl: true, aiPrediction: true } },
+        scan: {
+          include: {
+            caseReview: true
+          }
+        },
         messages: {
           take: 1,
           orderBy: { timestamp: 'desc' },
-          select: { message: true, timestamp: true }
+          include: {
+            sender: { select: { id: true, name: true, role: true, avatarUrl: true } },
+            attachments: true
+          }
+        },
+        _count: {
+          select: { messages: true }
         }
       }
     });
+
+    const consultationIds = consultations.map((consultation) => consultation.id);
+    const unreadCounts = consultationIds.length
+      ? await prisma.chatMessage.groupBy({
+        by: ['consultationId'],
+        where: {
+          consultationId: { in: consultationIds },
+          senderId: { not: userId },
+          readReceipts: {
+            none: { userId }
+          }
+        },
+        _count: { _all: true }
+      })
+      : [];
+
+    const unreadCountByConsultationId = unreadCounts.reduce((acc, item) => {
+      acc[item.consultationId] = item._count._all;
+      return acc;
+    }, {});
 
     // Get total count untuk pagination
     const total = await prisma.consultation.count({
@@ -154,12 +337,36 @@ const getConsultationList = async (userId, role, pagination = {}) => {
     return {
       data: consultations.map(c => ({
         id: c.id,
-        patient: c.patient,
+        consultationId: c.id,
+        patient: {
+          id: c.patient.id,
+          name: c.patient.name,
+          avatarUrl: c.patient.avatarUrl
+        },
         doctor: c.doctor,
-        scan: c.scan,
+        scan: {
+          id: c.scan.id,
+          scanId: c.scan.scanId,
+          imageUrl: c.scan.imageUrl,
+          aiPrediction: c.scan.aiPrediction,
+          aiConfidence: c.scan.aiConfidence,
+          complaint: c.scan.complaint,
+          bodySite: c.scan.bodySite
+        },
         status: c.status,
-        messageCount: c.messages.length || 0,
-        lastMessage: c.messages[0] || null,
+        subject: buildConsultationSubject(c),
+        messageCount: c._count.messages,
+        lastMessage: c.messages[0]
+          ? {
+            message: c.messages[0].message,
+            createdAt: c.messages[0].timestamp,
+            senderRole: c.messages[0].sender?.role || null,
+            attachments: (c.messages[0].attachments || []).map(mapAttachment)
+          }
+          : null,
+        lastMessageAt: c.messages[0]?.timestamp || c.updatedAt,
+        unreadCount: unreadCountByConsultationId[c.id] || 0,
+        aiTriageRequired: isAiTriageRequired(c.scan, c.scan?.caseReview),
         createdAt: c.createdAt,
         updatedAt: c.updatedAt
       })),
@@ -167,7 +374,8 @@ const getConsultationList = async (userId, role, pagination = {}) => {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit)
+        totalPages: Math.ceil(total / limit),
+        lastPage: Math.ceil(total / limit)
       }
     };
   } catch (error) {
@@ -189,21 +397,20 @@ const getConsultationDetail = async (consultationId, userId) => {
         patient: { select: { id: true, name: true, email: true, avatarUrl: true } },
         doctor: { select: { id: true, name: true, email: true, avatarUrl: true } },
         scan: {
-          select: {
-            id: true,
-            scanId: true,
-            imageUrl: true,
-            aiPrediction: true,
-            aiConfidence: true,
-            complaint: true,
-            bodySite: true
+          include: {
+            caseReview: true
           }
         },
         messages: {
           orderBy: { timestamp: 'asc' },
           include: {
-            sender: { select: { id: true, name: true, avatarUrl: true } }
+            sender: { select: { id: true, name: true, role: true, avatarUrl: true } },
+            attachments: true,
+            readReceipts: true
           }
+        },
+        prescriptions: {
+          orderBy: { createdAt: 'desc' }
         }
       }
     });
@@ -220,18 +427,53 @@ const getConsultationDetail = async (consultationId, userId) => {
       throw new Error('Unauthorized: You are not part of this consultation');
     }
 
+    const report = await prisma.report.findFirst({
+      where: {
+        scanId: consultation.scan.id,
+        patientId: consultation.patientId
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        reportId: true,
+        title: true,
+        description: true,
+        diagnosis: true,
+        recommendation: true,
+        status: true,
+        approvedByDoctorId: true,
+        approvedAt: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
     return {
       id: consultation.id,
       status: consultation.status,
       patient: consultation.patient,
       doctor: consultation.doctor,
-      scan: consultation.scan,
-      messages: consultation.messages,
+      scan: {
+        id: consultation.scan.id,
+        scanId: consultation.scan.scanId,
+        imageUrl: consultation.scan.imageUrl,
+        aiPrediction: consultation.scan.aiPrediction,
+        aiConfidence: consultation.scan.aiConfidence,
+        aiDetails: consultation.scan.aiDetails,
+        isAnalyzed: consultation.scan.isAnalyzed,
+        analyzeCompletedAt: consultation.scan.analyzeCompletedAt,
+        complaint: consultation.scan.complaint,
+        bodySite: consultation.scan.bodySite,
+        caseReview: consultation.scan.caseReview
+      },
+      subject: buildConsultationSubject(consultation),
+      aiTriageRequired: isAiTriageRequired(consultation.scan, consultation.scan?.caseReview),
+      messages: consultation.messages.map(mapChatMessage),
       messageCount: consultation.messages.length,
+      prescriptions: consultation.prescriptions,
       createdAt: consultation.createdAt,
       updatedAt: consultation.updatedAt,
-      closedAt: consultation.closedAt || null,
-      report: consultation.report || null
+      closedAt: consultation.status === 'CLOSED' ? consultation.updatedAt : null,
+      report: report || null
     };
   } catch (error) {
     throw new Error(`Failed to get consultation detail: ${error.message}`);
@@ -245,7 +487,7 @@ const getConsultationDetail = async (consultationId, userId) => {
  * @param {string} message - Message text
  * @returns {object} Created message
  */
-const sendMessage = async (consultationId, senderId, message) => {
+const sendMessage = async (consultationId, senderId, message, files = []) => {
   try {
     // 1. Validasi konsultasi ada dan status OPEN
     const consultation = await prisma.consultation.findUnique({
@@ -268,16 +510,29 @@ const sendMessage = async (consultationId, senderId, message) => {
       throw new Error('Unauthorized: You are not part of this consultation');
     }
 
+    const attachments = saveMessageAttachments(files);
+
     // 3. Create message
     const chatMessage = await prisma.chatMessage.create({
       data: {
         consultationId,
         senderId,
         message,
-        timestamp: new Date()
+        timestamp: new Date(),
+        attachments: attachments.length
+          ? {
+            create: attachments
+          }
+          : undefined,
+        readReceipts: {
+          create: {
+            userId: senderId
+          }
+        }
       },
       include: {
-        sender: { select: { id: true, name: true, avatarUrl: true } }
+        sender: { select: { id: true, name: true, role: true, avatarUrl: true } },
+        attachments: true
       }
     });
 
@@ -294,7 +549,7 @@ const sendMessage = async (consultationId, senderId, message) => {
     await createConsultationNotification(
       recipientId,
       `Pesan Baru dari ${sender.name}`,
-      message.substring(0, 100),
+      (message || 'Sent an attachment').substring(0, 100),
       'consultation_message'
     );
 
@@ -304,13 +559,9 @@ const sendMessage = async (consultationId, senderId, message) => {
       data: { updatedAt: new Date() }
     });
 
-    return {
-      id: chatMessage.id,
-      message: chatMessage.message,
-      sender: chatMessage.sender,
-      timestamp: chatMessage.timestamp,
-      consultationId
-    };
+    publishConsultationEvent(consultationId, 'message:new', mapChatMessage(chatMessage));
+
+    return mapChatMessage(chatMessage);
   } catch (error) {
     throw new Error(`Failed to send message: ${error.message}`);
   }
@@ -351,7 +602,9 @@ const getChatMessages = async (consultationId, userId, pagination = {}) => {
       take: limit,
       orderBy: { timestamp: 'desc' },
       include: {
-        sender: { select: { id: true, name: true, avatarUrl: true } }
+        sender: { select: { id: true, name: true, role: true, avatarUrl: true } },
+        attachments: true,
+        readReceipts: true
       }
     });
 
@@ -361,12 +614,13 @@ const getChatMessages = async (consultationId, userId, pagination = {}) => {
     });
 
     return {
-      data: messages.reverse(), // Reverse untuk display ascending
+      data: messages.reverse().map(mapChatMessage), // Reverse untuk display ascending
       pagination: {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit)
+        totalPages: Math.ceil(total / limit),
+        lastPage: Math.ceil(total / limit)
       }
     };
   } catch (error) {
@@ -408,14 +662,17 @@ const closeConsultation = async (consultationId, userId, reportData = {}) => {
     }
 
     // 3. Create report
-    const report = await prisma.consultationReport.create({
+    const report = await prisma.report.create({
       data: {
-        consultationId,
+        scanId: consultation.scanId,
+        patientId: consultation.patientId,
+        title: `Consultation Report - ${consultation.scan.scanId}`,
+        description: reportData.notes || null,
         diagnosis: reportData.diagnosis || '',
         recommendation: reportData.recommendation || '',
-        notes: reportData.notes || '',
-        generatedAt: new Date(),
-        generatedBy: userId
+        status: 'approved',
+        approvedByDoctorId: userId,
+        approvedAt: new Date()
       }
     });
 
@@ -423,9 +680,7 @@ const closeConsultation = async (consultationId, userId, reportData = {}) => {
     const updatedConsultation = await prisma.consultation.update({
       where: { id: consultationId },
       data: {
-        status: 'CLOSED',
-        closedAt: new Date(),
-        reportId: report.id
+        status: 'CLOSED'
       },
       include: {
         patient: { select: { id: true, name: true, email: true } },
@@ -443,6 +698,11 @@ const closeConsultation = async (consultationId, userId, reportData = {}) => {
       'consultation_closed'
     );
 
+    publishConsultationEvent(consultationId, 'consultation:status_updated', {
+      status: updatedConsultation.status,
+      closedAt: updatedConsultation.updatedAt
+    });
+
     return {
       id: updatedConsultation.id,
       status: updatedConsultation.status,
@@ -452,12 +712,14 @@ const closeConsultation = async (consultationId, userId, reportData = {}) => {
       messageCount: updatedConsultation.messages.length,
       report: {
         id: report.id,
+        reportId: report.reportId,
+        title: report.title,
         diagnosis: report.diagnosis,
         recommendation: report.recommendation,
-        notes: report.notes,
-        generatedAt: report.generatedAt
+        notes: report.description,
+        generatedAt: report.createdAt
       },
-      closedAt: updatedConsultation.closedAt,
+      closedAt: updatedConsultation.updatedAt,
       message: 'Consultation closed successfully'
     };
   } catch (error) {
@@ -490,16 +752,139 @@ const markMessagesAsRead = async (consultationId, userId, messageIds = []) => {
       throw new Error('Unauthorized: You are not part of this consultation');
     }
 
-    // Mark messages as read
-    // Note: Jika schema tidak punya isRead field, skip step ini
-    // Untuk sekarang kita just return success untuk compatibility
+    const whereClause = {
+      consultationId,
+      senderId: { not: userId }
+    };
+
+    if (messageIds.length > 0) {
+      whereClause.id = { in: messageIds };
+    }
+
+    const messagesToMark = await prisma.chatMessage.findMany({
+      where: whereClause,
+      select: { id: true }
+    });
+
+    if (messagesToMark.length > 0) {
+      await prisma.chatMessageReadReceipt.createMany({
+        data: messagesToMark.map((message) => ({
+          messageId: message.id,
+          userId,
+          readAt: new Date()
+        })),
+        skipDuplicates: true
+      });
+    }
+
+    publishConsultationEvent(consultationId, 'message:read_receipt', {
+      userId,
+      messageIds: messagesToMark.map((message) => message.id),
+      readAt: new Date().toISOString()
+    });
 
     return {
-      message: `Marked ${messageIds.length} messages as read`,
-      markedCount: messageIds.length
+      message: `Marked ${messagesToMark.length} messages as read`,
+      markedCount: messagesToMark.length
     };
   } catch (error) {
     throw new Error(`Failed to mark messages as read: ${error.message}`);
+  }
+};
+
+/**
+ * Create prescription for a consultation.
+ */
+const createPrescription = async (consultationId, doctorUserId, prescriptionData) => {
+  try {
+    const consultation = await prisma.consultation.findUnique({
+      where: { id: consultationId }
+    });
+
+    if (!consultation) {
+      throw new Error('Consultation not found');
+    }
+
+    if (consultation.doctorId !== doctorUserId) {
+      throw new Error('Unauthorized: Only assigned doctor can create prescriptions');
+    }
+
+    const prescription = await prisma.prescription.create({
+      data: {
+        consultationId,
+        doctorId: doctorUserId,
+        patientId: consultation.patientId,
+        medicationName: prescriptionData.medicationName,
+        dosage: prescriptionData.dosage || null,
+        frequency: prescriptionData.frequency || null,
+        duration: prescriptionData.duration || null,
+        notes: prescriptionData.notes || null
+      }
+    });
+
+    await createConsultationNotification(
+      consultation.patientId,
+      'Resep Baru',
+      `Dokter menambahkan resep: ${prescription.medicationName}`,
+      'consultation_prescription'
+    );
+
+    publishConsultationEvent(consultationId, 'prescription:created', prescription);
+
+    return prescription;
+  } catch (error) {
+    throw new Error(`Failed to create prescription: ${error.message}`);
+  }
+};
+
+/**
+ * Get AI analysis details for a consultation.
+ */
+const getAiAnalysis = async (consultationId, userId) => {
+  try {
+    const consultation = await prisma.consultation.findUnique({
+      where: { id: consultationId },
+      include: {
+        scan: {
+          include: {
+            caseReview: true
+          }
+        }
+      }
+    });
+
+    if (!consultation) {
+      throw new Error('Consultation not found');
+    }
+
+    if (
+      consultation.patientId !== userId &&
+      consultation.doctorId !== userId
+    ) {
+      throw new Error('Unauthorized: You are not part of this consultation');
+    }
+
+    const scan = consultation.scan;
+
+    return {
+      consultationId: consultation.id,
+      scan: {
+        id: scan.id,
+        scanId: scan.scanId,
+        imageUrl: scan.imageUrl,
+        bodySite: scan.bodySite,
+        complaint: scan.complaint,
+        isAnalyzed: scan.isAnalyzed,
+        aiPrediction: scan.aiPrediction,
+        aiConfidence: scan.aiConfidence,
+        aiDetails: scan.aiDetails,
+        analyzeCompletedAt: scan.analyzeCompletedAt
+      },
+      caseReview: scan.caseReview,
+      aiTriageRequired: isAiTriageRequired(scan, scan.caseReview)
+    };
+  } catch (error) {
+    throw new Error(`Failed to get AI analysis: ${error.message}`);
   }
 };
 
@@ -515,15 +900,46 @@ const createConsultationNotification = async (
   type = 'consultation_message'
 ) => {
   try {
-    await prisma.notification.create({
-      data: {
-        userId,
-        title,
-        message,
-        type,
-        isRead: false
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        doctorProfile: { select: { id: true } },
+        patientProfile: { select: { id: true } }
       }
     });
+
+    if (!user) {
+      return;
+    }
+
+    if (user.role === 'doctor' && user.doctorProfile) {
+      const doctorNotificationType = type === 'consultation_request'
+        ? 'case_request'
+        : 'system_message';
+
+      await prisma.notification.create({
+        data: {
+          doctorId: user.doctorProfile.id,
+          title,
+          message,
+          type: doctorNotificationType,
+          isRead: false
+        }
+      });
+      return;
+    }
+
+    if (user.role === 'patient' && user.patientProfile) {
+      await prisma.patientNotification.create({
+        data: {
+          patientId: user.patientProfile.id,
+          title,
+          message,
+          type,
+          isRead: false
+        }
+      });
+    }
   } catch (error) {
     console.error('Error creating consultation notification:', error.message);
     // Jangan throw error, notification adalah optional
@@ -567,6 +983,8 @@ module.exports = {
   getChatMessages,
   closeConsultation,
   markMessagesAsRead,
+  createPrescription,
+  getAiAnalysis,
 
   // Helper functions
   createConsultationNotification,

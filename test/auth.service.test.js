@@ -5,7 +5,12 @@ const bcrypt = require('bcryptjs');
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 
 const prisma = require('../src/config/prisma');
-const { loginUser, loginWithGoogleProfile } = require('../src/services/auth.service');
+const {
+  loginUser,
+  loginWithGoogleProfile,
+  requestPasswordReset,
+  resetPassword,
+} = require('../src/services/auth.service');
 
 const createdUserIds = [];
 
@@ -155,6 +160,30 @@ test('admin login behavior remains unchanged', async () => {
   assert.equal(result.role, 'admin');
   assert.equal(typeof result.token, 'string');
   assert.equal('verificationStatus' in result, false);
+});
+
+test('forgot password issues token and reset password updates credentials', async () => {
+  const patient = await createNonDoctor('patient');
+  const resetRequest = await requestPasswordReset(patient.email);
+
+  assert.equal(resetRequest.message, 'Jika email terdaftar, instruksi reset password akan dikirim.');
+  assert.equal(typeof resetRequest.resetToken, 'string');
+
+  const resetResult = await resetPassword(resetRequest.resetToken, 'newpassword123');
+  assert.equal(resetResult.message, 'Password berhasil direset');
+
+  await assert.rejects(loginUser(patient.email, patient.password));
+
+  const loginResult = await loginUser(patient.email, 'newpassword123');
+  assert.equal(loginResult.role, 'patient');
+  assert.equal(typeof loginResult.token, 'string');
+});
+
+test('forgot password uses generic response for unknown email', async () => {
+  const result = await requestPasswordReset(`missing.${Date.now()}@example.com`);
+
+  assert.equal(result.message, 'Jika email terdaftar, instruksi reset password akan dikirim.');
+  assert.equal('resetToken' in result, false);
 });
 
 test('existing patient can login with Google', async () => {

@@ -7,6 +7,8 @@ const uploadMedicalLicense = require('../middlewares/medical-license.middleware'
 // Route Login & Register
 router.post('/register', uploadMedicalLicense, authController.register);
 router.post('/login', authController.login);
+router.post('/forgot-password', authController.forgotPassword);
+router.post('/reset-password', authController.resetPassword);
 router.get('/google', authController.redirectToGoogle);
 router.get('/google/callback', authController.googleCallback);
 // router.get('/users', authMiddleware, authController.getUsers);

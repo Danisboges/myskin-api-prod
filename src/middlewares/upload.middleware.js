@@ -21,6 +21,14 @@ const uploadInstance = multer({
   }
 });
 
+const attachmentUploadInstance = multer({
+  storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: 5
+  }
+});
+
 // Wrapper untuk single file upload dengan error handling
 const uploadSingleFile = (fieldName) => {
   return (req, res, next) => {
@@ -40,6 +48,37 @@ const uploadSingleFile = (fieldName) => {
         return res.status(400).json({
           status: 'error',
           message: err.message || 'Invalid file upload format. Use multipart/form-data with correct field name'
+        });
+      }
+      next();
+    });
+  };
+};
+
+const uploadMultipleFiles = (fieldName, maxCount = 5) => {
+  return (req, res, next) => {
+    attachmentUploadInstance.array(fieldName, maxCount)(req, res, (err) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({
+            status: 'error',
+            message: 'Attachment size exceeds 10MB limit'
+          });
+        }
+        if (err.code === 'LIMIT_FILE_COUNT') {
+          return res.status(400).json({
+            status: 'error',
+            message: `Maximum ${maxCount} attachments are allowed`
+          });
+        }
+        return res.status(400).json({
+          status: 'error',
+          message: `Upload error: ${err.message}`
+        });
+      } else if (err) {
+        return res.status(400).json({
+          status: 'error',
+          message: err.message || 'Invalid attachment upload format. Use multipart/form-data'
         });
       }
       next();
@@ -72,5 +111,6 @@ const handleUploadError = (err, req, res, next) => {
 module.exports = { 
   upload: uploadInstance,
   uploadSingleFile,
+  uploadMultipleFiles,
   handleUploadError
 };

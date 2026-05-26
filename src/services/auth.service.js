@@ -173,6 +173,95 @@ const createAuthToken = (user) => jwt.sign(
   { expiresIn: '24h' }
 );
 
+const hashPasswordResetToken = (token) => (
+  crypto.createHash('sha256').update(token).digest('hex')
+);
+
+const requestPasswordReset = async (email) => {
+  if (!email || typeof email !== 'string') {
+    const error = new Error('Email harus disediakan');
+    error.status = 400;
+    throw error;
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
+    select: { id: true, email: true }
+  });
+
+  const genericMessage = 'Jika email terdaftar, instruksi reset password akan dikirim.';
+
+  if (!user) {
+    return { message: genericMessage };
+  }
+
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  const passwordResetToken = hashPasswordResetToken(resetToken);
+  const passwordResetExpires = new Date(Date.now() + 15 * 60 * 1000);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordResetToken,
+      passwordResetExpires
+    }
+  });
+
+  const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+  const result = { message: genericMessage };
+
+  if (process.env.NODE_ENV !== 'production') {
+    result.resetToken = resetToken;
+    result.resetUrl = resetUrl;
+    result.expiresAt = passwordResetExpires;
+  }
+
+  return result;
+};
+
+const resetPassword = async (token, password) => {
+  if (!token || typeof token !== 'string') {
+    const error = new Error('Token reset password harus disediakan');
+    error.status = 400;
+    throw error;
+  }
+
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    const error = new Error('Password baru minimal 6 karakter');
+    error.status = 400;
+    throw error;
+  }
+
+  const passwordResetToken = hashPasswordResetToken(token.trim());
+  const user = await prisma.user.findFirst({
+    where: {
+      passwordResetToken,
+      passwordResetExpires: {
+        gt: new Date()
+      }
+    },
+    select: { id: true }
+  });
+
+  if (!user) {
+    const error = new Error('Token reset password tidak valid atau sudah kadaluarsa');
+    error.status = 400;
+    throw error;
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      password: await bcrypt.hash(password, 10),
+      passwordResetToken: null,
+      passwordResetExpires: null
+    }
+  });
+
+  return { message: 'Password berhasil direset' };
+};
+
 const createGoogleOAuthState = () => jwt.sign(
   { nonce: crypto.randomBytes(16).toString('hex') },
   process.env.JWT_SECRET,
@@ -346,6 +435,8 @@ const loginWithGoogleProfile = async ({ email, name, googleId }) => {
 module.exports = {
   registerUser,
   loginUser,
+  requestPasswordReset,
+  resetPassword,
   getGoogleAuthorizationUrl,
   getGoogleProfileFromCode,
   loginWithGoogleProfile,

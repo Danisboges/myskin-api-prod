@@ -1,0 +1,858 @@
+
+{
+  "info": {
+    "name": "Melanoma API - Chat Consultation",
+    "description": "Postman collection untuk endpoint chat konsultasi antara patient dan doctor.\n\nCara pakai:\n1. Import file ini ke Postman.\n2. Jalankan request \"Login Patient\" untuk menyimpan {{patientToken}}.\n3. Jalankan request \"Login Doctor\" untuk menyimpan {{doctorToken}}.\n4. Jika perlu, ubah {{doctorId}} dan {{scanId}} di bagian Variables.\n5. Jalankan \"Initiate Consultation\". Response akan otomatis menyimpan {{consultationId}}.\n6. Lanjutkan test send/get messages, mark read, dan close consultation.\n\nDefault baseUrl: http://localhost:3300",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login Patient",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.token) {",
+                  "  pm.collectionVariables.set('patientToken', json.token);",
+                  "}",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set('patientUserId', json.id);",
+                  "}",
+                  "pm.test('Patient login success', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(json.role).to.eql('patient');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{patientEmail}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Login sebagai patient. Token otomatis disimpan ke collection variable `patientToken`."
+          },
+          "response": []
+        },
+        {
+          "name": "Login Doctor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.token) {",
+                  "  pm.collectionVariables.set('doctorToken', json.token);",
+                  "}",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set('doctorUserId', json.id);",
+                  "}",
+                  "pm.test('Doctor login success', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(json.role).to.eql('doctor');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{doctorEmail}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Login sebagai doctor. Token otomatis disimpan ke collection variable `doctorToken`."
+          },
+          "response": []
+        },
+        {
+          "name": "Forgot Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.resetToken) {",
+                  "  pm.collectionVariables.set('resetToken', json.resetToken);",
+                  "}",
+                  "pm.test('Forgot password accepted', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{patientEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "Request token reset password. Di non-production response menyertakan `resetToken` dan `resetUrl` agar mudah dites di Postman. Di production response tetap generic dan token seharusnya dikirim via email."
+          },
+          "response": []
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"password\": \"{{newPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/reset-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "reset-password"
+              ]
+            },
+            "description": "Reset password memakai token dari request Forgot Password. Password minimal 6 karakter."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Doctor Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.doctorId) {",
+                  "  pm.collectionVariables.set('doctorId', json.data.doctorId);",
+                  "}",
+                  "pm.test('Doctor profile loaded', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "doctor",
+                "profile"
+              ]
+            },
+            "description": "Ambil profile doctor dan simpan `doctorId` otomatis untuk request initiate consultation."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Patient Consultation",
+      "item": [
+        {
+          "name": "Initiate Consultation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('consultationId', json.data.id);",
+                  "}",
+                  "pm.test('Consultation initiated or duplicate handled', function () {",
+                  "  pm.expect([201, 409]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"doctorId\": \"{{doctorId}}\",\n  \"scanId\": \"{{scanId}}\",\n  \"initialMessage\": \"Halo dokter, saya ingin konsultasi terkait hasil scan saya.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/initiate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "patient",
+                "consultations",
+                "initiate"
+              ]
+            },
+            "description": "Membuat konsultasi baru dari patient ke doctor.\n\nBody:\n- `doctorId`: ID DoctorProfile, bukan userId doctor.\n- `scanId`: scanId publik, contoh `SCAN-SEED-002`.\n- `initialMessage`: pesan awal patient.\n\nResponse 201 akan menyimpan `consultationId` otomatis."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Patient Consultation List",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations?page=1&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "patient",
+                "consultations"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Mengambil daftar konsultasi milik patient yang sedang login."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Patient Consultation Detail",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "patient",
+                "consultations",
+                "{{consultationId}}"
+              ]
+            },
+            "description": "Mengambil detail konsultasi, termasuk scan, messages, dan report jika konsultasi sudah ditutup."
+          },
+          "response": []
+        },
+        {
+          "name": "Send Message as Patient",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('lastMessageId', json.data.id);",
+                  "}",
+                  "pm.test('Message sent', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Dokter, apakah hasil scan ini perlu pemeriksaan lanjutan?\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "patient",
+                "consultations",
+                "{{consultationId}}",
+                "messages"
+              ]
+            },
+            "description": "Kirim pesan sebagai patient. `lastMessageId` akan disimpan otomatis."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Messages as Patient",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}/messages?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "patient",
+                "consultations",
+                "{{consultationId}}",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Mengambil chat messages dengan pagination. Response data dikembalikan ascending untuk display."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Specific Messages as Read",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"messageIds\": [\"{{lastMessageId}}\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "patient",
+                "consultations",
+                "{{consultationId}}",
+                "read"
+              ]
+            },
+            "description": "Mark message tertentu sebagai read. Saat ini schema belum punya field `isRead`, jadi endpoint mengembalikan compatibility success."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Messages as Read",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}/read-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "patient",
+                "consultations",
+                "{{consultationId}}",
+                "read-all"
+              ]
+            },
+            "description": "Mark semua messages sebagai read. Saat ini endpoint bersifat compatibility karena schema belum menyimpan read state."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Doctor Consultation",
+      "item": [
+        {
+          "name": "Get Doctor Consultation List",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations?page=1&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "doctor",
+                "consultations"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Mengambil daftar konsultasi untuk doctor yang sedang login."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Doctor Consultation Detail",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "doctor",
+                "consultations",
+                "{{consultationId}}"
+              ]
+            },
+            "description": "Mengambil detail konsultasi dari sisi doctor."
+          },
+          "response": []
+        },
+        {
+          "name": "Send Message as Doctor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('lastMessageId', json.data.id);",
+                  "}",
+                  "pm.test('Doctor message sent', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Terima kasih, saya akan meninjau hasil scan Anda.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "doctor",
+                "consultations",
+                "{{consultationId}}",
+                "messages"
+              ]
+            },
+            "description": "Kirim pesan sebagai doctor."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Messages as Doctor",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}/messages?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "doctor",
+                "consultations",
+                "{{consultationId}}",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Mengambil messages dari sisi doctor."
+          },
+          "response": []
+        },
+        {
+          "name": "Close Consultation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.report && json.data.report.reportId) {",
+                  "  pm.collectionVariables.set('reportId', json.data.report.reportId);",
+                  "}",
+                  "pm.test('Consultation closed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(json.data.status).to.eql('CLOSED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"diagnosis\": \"Benign nevus\",\n  \"recommendation\": \"Pantau perubahan ukuran, warna, dan bentuk. Kontrol ulang jika ada perubahan mencurigakan.\",\n  \"notes\": \"Konsultasi ditutup setelah review dokter.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}/close",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "doctor",
+                "consultations",
+                "{{consultationId}}",
+                "close"
+              ]
+            },
+            "description": "Menutup konsultasi dan membuat report. Hanya doctor yang menjadi participant konsultasi yang boleh menutup."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3300",
+      "type": "string"
+    },
+    {
+      "key": "patientEmail",
+      "value": "michael.chen@example.com",
+      "type": "string"
+    },
+    {
+      "key": "doctorEmail",
+      "value": "jamesmitchell@clinic.com",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "password123",
+      "type": "string"
+    },
+    {
+      "key": "newPassword",
+      "value": "newpassword123",
+      "type": "string"
+    },
+    {
+      "key": "resetToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "scanId",
+      "value": "SCAN-SEED-002",
+      "type": "string"
+    },
+    {
+      "key": "doctorId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "consultationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "patientToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "doctorToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lastMessageId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "reportId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

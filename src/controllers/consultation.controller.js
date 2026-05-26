@@ -5,11 +5,27 @@
 
 const consultationService = require('../services/consultation.service');
 const {
+  publishConsultationEvent,
+  subscribeToConsultationEvents
+} = require('../services/consultation-events.service');
+const {
   validateInitiateConsultation,
   validateSendMessage,
   validateCloseConsultation,
-  validatePaginationParams
+  validatePaginationParams,
+  validateConsultationListFilters,
+  validatePrescription,
+  validateMarkAsRead
 } = require('../validators/consultation.validator');
+
+const isValidationError = (error) => (
+  error.message.includes('required') ||
+  error.message.includes('must be') ||
+  error.message.includes('cannot be') ||
+  error.message.includes('exceed') ||
+  error.message.includes('empty') ||
+  error.message.includes('valid date')
+);
 
 // ==================== CONSULTATION ENDPOINTS ====================
 
@@ -19,11 +35,10 @@ const {
  */
 const initiateConsultation = async (req, res) => {
   try {
-    const { doctorId, scanId, initialMessage } = req.body;
     const userId = req.user.id;
 
     // Validate input
-    validateInitiateConsultation(req.body);
+    const { doctorId, scanId, initialMessage } = validateInitiateConsultation(req.body);
 
     // Call service
     const result = await consultationService.initiateConsultation(
@@ -67,6 +82,13 @@ const initiateConsultation = async (req, res) => {
       });
     }
 
+    if (isValidationError(error)) {
+      return res.status(400).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
     return res.status(500).json({
       status: 'error',
       message: 'Failed to initiate consultation'
@@ -82,24 +104,29 @@ const getConsultationList = async (req, res) => {
   try {
     const userId = req.user.id;
     const role = req.user.role || 'patient';
-    const { page = 1, limit = 10 } = req.query;
-
-    // Validate pagination
-    validatePaginationParams({ page: parseInt(page), limit: parseInt(limit) });
+    const filters = validateConsultationListFilters(req.query);
 
     const result = await consultationService.getConsultationList(
       userId,
       role,
-      { page: parseInt(page), limit: parseInt(limit) }
+      filters
     );
 
     return res.status(200).json({
       status: 'success',
       data: result.data,
+      meta: result.pagination,
       pagination: result.pagination
     });
   } catch (error) {
     console.error('Error getting consultation list:', error.message);
+
+    if (isValidationError(error)) {
+      return res.status(400).json({
+        status: 'error',
+        message: error.message
+      });
+    }
 
     return res.status(500).json({
       status: 'error',
@@ -157,16 +184,19 @@ const getConsultationDetail = async (req, res) => {
 const sendMessage = async (req, res) => {
   try {
     const { consultationId } = req.params;
-    const { message } = req.body;
     const userId = req.user.id;
 
     // Validate input
-    validateSendMessage(req.body);
+    const attachments = req.files || [];
+    const { message } = validateSendMessage(req.body, {
+      hasAttachments: attachments.length > 0
+    });
 
     const result = await consultationService.sendMessage(
       consultationId,
       userId,
-      message
+      message,
+      attachments
     );
 
     return res.status(201).json({
@@ -198,9 +228,219 @@ const sendMessage = async (req, res) => {
       });
     }
 
+    if (isValidationError(error)) {
+      return res.status(400).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
     return res.status(500).json({
       status: 'error',
       message: 'Failed to send message'
+    });
+  }
+};
+
+/**
+ * POST /api/v1/doctor/consultations/:consultationId/prescriptions
+ * Create prescription in consultation
+ */
+const createPrescription = async (req, res) => {
+  try {
+    const { consultationId } = req.params;
+    const userId = req.user.id;
+    const prescriptionData = validatePrescription(req.body);
+
+    const result = await consultationService.createPrescription(
+      consultationId,
+      userId,
+      prescriptionData
+    );
+
+    return res.status(201).json({
+      status: 'success',
+      message: 'Prescription created successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Error creating prescription:', error.message);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Unauthorized')) {
+      return res.status(403).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    if (isValidationError(error)) {
+      return res.status(400).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to create prescription'
+    });
+  }
+};
+
+/**
+ * GET /api/v1/doctor/consultations/:consultationId/ai-analysis
+ * Get AI analysis details for consultation
+ */
+const getAiAnalysis = async (req, res) => {
+  try {
+    const { consultationId } = req.params;
+    const userId = req.user.id;
+
+    const result = await consultationService.getAiAnalysis(consultationId, userId);
+
+    return res.status(200).json({
+      status: 'success',
+      data: result
+    });
+  } catch (error) {
+    console.error('Error getting AI analysis:', error.message);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Unauthorized')) {
+      return res.status(403).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to get AI analysis'
+    });
+  }
+};
+
+/**
+ * GET /api/v1/doctor/consultations/:consultationId/events
+ * Server-sent events stream for consultation updates
+ */
+const streamConsultationEvents = async (req, res) => {
+  const { consultationId } = req.params;
+  const userId = req.user.id;
+
+  try {
+    await consultationService.getAiAnalysis(consultationId, userId);
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    const writeEvent = (event) => {
+      res.write(`event: ${event.type}\n`);
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    writeEvent({
+      type: 'connection:ready',
+      consultationId,
+      payload: { userId },
+      emittedAt: new Date().toISOString()
+    });
+
+    const unsubscribe = subscribeToConsultationEvents(consultationId, writeEvent);
+    const keepAlive = setInterval(() => {
+      res.write(': keep-alive\n\n');
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      unsubscribe();
+      res.end();
+    });
+  } catch (error) {
+    console.error('Error streaming consultation events:', error.message);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Unauthorized')) {
+      return res.status(403).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to stream consultation events'
+    });
+  }
+};
+
+/**
+ * POST /api/v1/doctor/consultations/:consultationId/typing
+ * Publish typing status for consultation participants
+ */
+const sendTypingStatus = async (req, res) => {
+  try {
+    const { consultationId } = req.params;
+    const userId = req.user.id;
+    const isTyping = Boolean(req.body?.isTyping);
+
+    await consultationService.getAiAnalysis(consultationId, userId);
+
+    publishConsultationEvent(consultationId, 'typing:status', {
+      userId,
+      isTyping
+    });
+
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        consultationId,
+        userId,
+        isTyping
+      }
+    });
+  } catch (error) {
+    console.error('Error sending typing status:', error.message);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Unauthorized')) {
+      return res.status(403).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to send typing status'
     });
   }
 };
@@ -227,6 +467,7 @@ const getChatMessages = async (req, res) => {
     return res.status(200).json({
       status: 'success',
       data: result.data,
+      meta: result.pagination,
       pagination: result.pagination
     });
   } catch (error) {
@@ -246,6 +487,13 @@ const getChatMessages = async (req, res) => {
       });
     }
 
+    if (isValidationError(error)) {
+      return res.status(400).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
     return res.status(500).json({
       status: 'error',
       message: 'Failed to get chat messages'
@@ -260,11 +508,10 @@ const getChatMessages = async (req, res) => {
 const closeConsultation = async (req, res) => {
   try {
     const { consultationId } = req.params;
-    const { diagnosis, recommendation, notes } = req.body;
     const userId = req.user.id;
 
     // Validate input
-    validateCloseConsultation(req.body);
+    const { diagnosis, recommendation, notes } = validateCloseConsultation(req.body);
 
     const result = await consultationService.closeConsultation(
       consultationId,
@@ -301,6 +548,13 @@ const closeConsultation = async (req, res) => {
       });
     }
 
+    if (isValidationError(error)) {
+      return res.status(400).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
     return res.status(500).json({
       status: 'error',
       message: 'Failed to close consultation'
@@ -315,8 +569,8 @@ const closeConsultation = async (req, res) => {
 const markMessagesAsRead = async (req, res) => {
   try {
     const { consultationId } = req.params;
-    const { messageIds = [] } = req.body;
     const userId = req.user.id;
+    const { messageIds } = validateMarkAsRead(req.body);
 
     const result = await consultationService.markMessagesAsRead(
       consultationId,
@@ -340,6 +594,13 @@ const markMessagesAsRead = async (req, res) => {
 
     if (error.message.includes('Unauthorized')) {
       return res.status(403).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    if (isValidationError(error)) {
+      return res.status(400).json({
         status: 'error',
         message: error.message
       });
@@ -390,6 +651,10 @@ module.exports = {
   sendMessage,
   getChatMessages,
   closeConsultation,
+  createPrescription,
+  getAiAnalysis,
+  streamConsultationEvents,
+  sendTypingStatus,
   markMessagesAsRead,
   markAllAsRead
 };

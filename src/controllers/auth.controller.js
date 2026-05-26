@@ -30,6 +30,41 @@ const login = async (req, res) => {
   }
 };
 
+const forgotPassword = async (req, res) => {
+  try {
+    const result = await authService.requestPasswordReset(req.body.email);
+
+    res.status(200).json({
+      status: "success",
+      ...result,
+    });
+  } catch (err) {
+    console.error("Gagal request reset password:", err.message);
+    res.status(err.status || 500).json({
+      status: "error",
+      message: err.message,
+    });
+  }
+};
+
+const resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    const result = await authService.resetPassword(token, password);
+
+    res.status(200).json({
+      status: "success",
+      ...result,
+    });
+  } catch (err) {
+    console.error("Gagal reset password:", err.message);
+    res.status(err.status || 500).json({
+      status: "error",
+      message: err.message,
+    });
+  }
+};
+
 const redirectToGoogle = (req, res) => {
   try {
     res.redirect(authService.getGoogleAuthorizationUrl());
@@ -93,4 +128,11 @@ const googleCallback = async (req, res) => {
 //   }
 // };
 
-module.exports = { register, login, redirectToGoogle, googleCallback };
+module.exports = {
+  register,
+  login,
+  forgotPassword,
+  resetPassword,
+  redirectToGoogle,
+  googleCallback,
+};

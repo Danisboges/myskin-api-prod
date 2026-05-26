@@ -6,7 +6,22 @@
 const express = require('express');
 const router = express.Router();
 const consultationController = require('../controllers/consultation.controller');
-const { verifyToken } = require('../middlewares/auth.middleware');
+const { verifyToken, isDoctor, isPatient } = require('../middlewares/auth.middleware');
+const { uploadMultipleFiles } = require('../middlewares/upload.middleware');
+
+const enforceMountedRole = (req, res, next) => {
+  if (req.baseUrl.includes('/doctor/consultations')) {
+    return isDoctor(req, res, next);
+  }
+
+  if (req.baseUrl.includes('/patient/consultations')) {
+    return isPatient(req, res, next);
+  }
+
+  return next();
+};
+
+router.use(verifyToken, enforceMountedRole);
 
 // ==================== PATIENT ROUTES ====================
 
@@ -47,6 +62,7 @@ router.get(
 router.post(
   '/:consultationId/messages',
   verifyToken,
+  uploadMultipleFiles('attachments', 5),
   consultationController.sendMessage
 );
 
@@ -58,6 +74,36 @@ router.get(
   '/:consultationId/messages',
   verifyToken,
   consultationController.getChatMessages
+);
+
+/**
+ * GET /api/v1/doctor/consultations/:consultationId/ai-analysis
+ * Get AI analysis detail for consultation
+ */
+router.get(
+  '/:consultationId/ai-analysis',
+  verifyToken,
+  consultationController.getAiAnalysis
+);
+
+/**
+ * GET /api/v1/doctor/consultations/:consultationId/events
+ * SSE stream for new messages, typing, read receipts, and status updates
+ */
+router.get(
+  '/:consultationId/events',
+  verifyToken,
+  consultationController.streamConsultationEvents
+);
+
+/**
+ * POST /api/v1/doctor/consultations/:consultationId/typing
+ * Publish typing status
+ */
+router.post(
+  '/:consultationId/typing',
+  verifyToken,
+  consultationController.sendTypingStatus
 );
 
 /**
@@ -92,6 +138,16 @@ router.patch(
   '/:consultationId/close',
   verifyToken,
   consultationController.closeConsultation
+);
+
+/**
+ * POST /api/v1/doctor/consultations/:consultationId/prescriptions
+ * Create prescription (doctor only via service authorization)
+ */
+router.post(
+  '/:consultationId/prescriptions',
+  verifyToken,
+  consultationController.createPrescription
 );
 
 module.exports = router;
