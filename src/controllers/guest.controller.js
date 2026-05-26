@@ -43,6 +43,45 @@ const scanImage = async (req, res) => {
 };
 
 /**
+ * GET /api/guest/scan/:sessionId
+ * Retrieve hasil scan guest dari cache
+ * Data bersifat temporary dan akan di-cleanup setelah 24 jam
+ */
+const getGuestScanResult = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    if (!sessionId) {
+      return res.status(400).json({
+        status: "error",
+        message: "Session ID is required"
+      });
+    }
+
+    const result = guestService.getGuestScanResult(sessionId);
+
+    if (!result) {
+      return res.status(404).json({
+        status: "error",
+        message: "Scan result not found or has expired. The session data is only kept for 24 hours."
+      });
+    }
+
+    res.status(200).json({
+      status: "success",
+      message: "Guest scan result retrieved successfully",
+      data: result
+    });
+  } catch (err) {
+    console.error("Error retrieving guest scan result:", err.message);
+    res.status(500).json({
+      status: "error",
+      message: err.message
+    });
+  }
+};
+
+/**
  * GET /api/guest/info
  * Informasi tentang guest scan feature
  */
@@ -63,5 +102,6 @@ const getGuestInfo = async (req, res) => {
 
 module.exports = {
   scanImage,
+  getGuestScanResult,
   getGuestInfo
 };

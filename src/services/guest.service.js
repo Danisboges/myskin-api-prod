@@ -9,6 +9,33 @@ const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
 
+// ==================== IN-MEMORY CACHE FOR GUEST SCAN RESULTS ====================
+/**
+ * In-memory cache untuk menyimpan hasil scan guest secara temporary
+ * Format: { sessionId: { data, timestamp, expiresAt } }
+ * Cache akan auto-cleanup setelah 24 jam
+ */
+const guestScanCache = {};
+const CACHE_EXPIRATION_TIME = 24 * 60 * 60 * 1000; // 24 jam dalam milliseconds
+
+/**
+ * Cleanup expired cache entries
+ */
+const cleanupExpiredCache = () => {
+  const now = Date.now();
+  for (const sessionId in guestScanCache) {
+    if (guestScanCache[sessionId].expiresAt < now) {
+      delete guestScanCache[sessionId];
+      console.log(`Cache expired for sessionId: ${sessionId}`);
+    }
+  }
+};
+
+/**
+ * Setup periodic cleanup setiap 1 jam
+ */
+setInterval(cleanupExpiredCache, 60 * 60 * 1000);
+
 // ==================== GUEST IMAGE ANALYSIS ====================
 
 /**
@@ -65,10 +92,13 @@ const analyzeGuestImage = async (fileData, complaint, bodySite) => {
 
     const aiResult = aiResponse.data;
 
-    // 7. Format response untuk guest
-    return {
+    // 7. Generate sessionId yang unik
+    const sessionId = `GUEST-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // 7.1. Format response untuk guest
+    const scanResult = {
       // Session-based ID untuk tracking dalam sesi guest saja
-      sessionId: `GUEST-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      sessionId: sessionId,
       
       // Image information
       imageUrl: `/uploads/${tempFilename}`,
@@ -111,6 +141,16 @@ const analyzeGuestImage = async (fileData, complaint, bodySite) => {
         message: "This scan result is temporary and will not be saved. Create an account to save your results."
       }
     };
+
+    // 8. Simpan hasil scan ke cache dengan expiration
+    guestScanCache[sessionId] = {
+      data: scanResult,
+      timestamp: new Date(),
+      expiresAt: Date.now() + CACHE_EXPIRATION_TIME
+    };
+    console.log(`Guest scan cached with sessionId: ${sessionId}`);
+
+    return scanResult;
   } catch (err) {
     console.error("Guest analysis error:", err.message);
     
@@ -121,7 +161,7 @@ const analyzeGuestImage = async (fileData, complaint, bodySite) => {
       
     throw new Error(`Guest scan analysis failed: ${errorMessage}`);
   } finally {
-    // 8. Delete temporary file after processing
+    // 9. Delete temporary file after processing
     if (tempFilePath && fs.existsSync(tempFilePath)) {
       try {
         fs.unlinkSync(tempFilePath);
@@ -131,6 +171,65 @@ const analyzeGuestImage = async (fileData, complaint, bodySite) => {
       }
     }
   }
+};
+
+// ==================== RETRIEVE GUEST SCAN RESULT ====================
+
+/**
+ * Get hasil scan guest berdasarkan sessionId
+ * @param {string} sessionId - Session ID dari guest scan
+ * @returns {object} Scan result atau null jika tidak ditemukan/expired
+ */
+const getGuestScanResult = (sessionId) => {
+  if (!sessionId) {
+    throw new Error('Session ID is required');
+  }
+
+  // Cleanup expired cache terlebih dahulu
+  cleanupExpiredCache();
+
+  // Cek apakah sessionId ada di cache
+  if (!guestScanCache[sessionId]) {
+    return null;
+  }
+
+  const cachedData = guestScanCache[sessionId];
+  
+  // Validasi apakah cache masih valid
+  if (cachedData.expiresAt < Date.now()) {
+    delete guestScanCache[sessionId];
+    return null;
+  }
+
+  return {
+    ...cachedData.data,
+    cacheInfo: {
+      cachedAt: cachedData.timestamp,
+      expiresAt: new Date(cachedData.expiresAt),
+      timeRemaining: Math.round((cachedData.expiresAt - Date.now()) / 1000) + ' seconds'
+    }
+  };
+};
+
+/**
+ * Get semua available guest scan sessions
+ * Untuk debugging/monitoring purposes
+ */
+const getAllGuestScanSessions = () => {
+  cleanupExpiredCache();
+  
+  const sessions = [];
+  for (const sessionId in guestScanCache) {
+    const cached = guestScanCache[sessionId];
+    sessions.push({
+      sessionId: sessionId,
+      cachedAt: cached.timestamp,
+      expiresAt: new Date(cached.expiresAt),
+      riskLevel: cached.data.prediction.riskLevel,
+      label: cached.data.prediction.label
+    });
+  }
+  return sessions;
 };
 
 /**
@@ -178,5 +277,7 @@ const getGuestScanInfo = () => {
 
 module.exports = {
   analyzeGuestImage,
+  getGuestScanResult,
+  getAllGuestScanSessions,
   getGuestScanInfo
 };

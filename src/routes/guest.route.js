@@ -26,6 +26,16 @@ router.post(
 );
 
 /**
+ * GET /api/guest/scan/:sessionId
+ * Retrieve hasil scan guest berdasarkan sessionId
+ * Data bersifat temporary dan akan di-cleanup setelah 24 jam
+ */
+router.get(
+  '/scan/:sessionId',
+  guestController.getGuestScanResult
+);
+
+/**
  * GET /api/guest/info
  * Get informasi tentang guest scan feature
  */
