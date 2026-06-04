@@ -19,6 +19,12 @@ router.get('/dashboard/summary', verifyToken, isDoctor, doctorController.getDash
 router.get('/cases/assigned', verifyToken, isDoctor, doctorController.getAssignedCases);
 
 /**
+ * GET /api/v1/doctor/cases/history/download
+ * Download detailed case history as PDF
+ */
+router.get('/cases/history/download', verifyToken, isDoctor, doctorController.downloadCaseHistoryPdf);
+
+/**
  * GET /api/v1/doctor/cases/history
  * Get case history with filters
  */
@@ -43,6 +49,18 @@ router.patch('/cases/:caseId/approve', verifyToken, isDoctor, doctorController.a
 router.patch('/cases/:caseId/reject', verifyToken, isDoctor, doctorController.rejectCase);
 
 // ==================== CASE HISTORY ROUTES ====================
+
+/**
+ * POST /api/v1/doctor/cases/:caseId/report/generate
+ * Generate detailed case report PDF
+ */
+router.post('/cases/:caseId/report/generate', verifyToken, isDoctor, doctorController.generateCaseReportPdf);
+
+/**
+ * GET /api/v1/doctor/cases/:caseId/report/download
+ * Download detailed case report PDF
+ */
+router.get('/cases/:caseId/report/download', verifyToken, isDoctor, doctorController.generateCaseReportPdf);
 
 /**
  * GET /api/v1/doctor/cases/:caseId

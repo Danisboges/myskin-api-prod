@@ -10,20 +10,28 @@ const register = async (req, res) => {
     res.status(201).json({ message: "Register Berhasil", data: user });
   } catch (err) {
     console.error("Gagal Register:", err.message);
-    res.status(400).json({ error: err.message });
+    if (err.status === 409) {
+      return res.status(409).json({ status: "error", message: err.message });
+    }
+    res.status(err.status || 400).json({ error: err.message });
   }
 };
 
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const result = await authService.loginUser(email, password);
+    const result = await authService.loginUser(email, password, { ipAddress: req.ip });
     res.status(200).json({ message: "Login Berhasil", ...result });
   } catch (err) {
     console.error("Gagal Login:", err.message);
     const statusCode = err.status || 401;
+    if (err.code === "MAINTENANCE_MODE" && err.response) {
+      return res.status(statusCode).json(err.response);
+    }
+
     res.status(statusCode).json({
       status: "error",
+      ...(err.code && { code: err.code }),
       message: err.message,
       error: err.message,
     });

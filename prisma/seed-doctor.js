@@ -1,7 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { PrismaPg } = require('@prisma/adapter-pg');
 const { Pool } = require('pg');
-const bcrypt = require('bcryptjs');
+const { hashPassword } = require('../src/utils/password.util');
 require('dotenv').config();
 
 const pool = new Pool({
@@ -10,7 +10,7 @@ const pool = new Pool({
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-const password = 'password123';
+const password = 'Str0ng!Pass2026';
 
 const doctors = [
   {
@@ -80,6 +80,27 @@ const patients = [
       reviewedAt: new Date('2026-04-22T11:30:00Z'),
     },
     observation: 'Patient has good sun protection habits. Recommended continued monitoring.',
+    consultation: {
+      status: 'OPEN',
+      createdAt: new Date('2026-04-22T10:40:00Z'),
+      messages: [
+        {
+          sender: 'patient',
+          message: 'Hello Doctor, I uploaded this scan because the spot has changed color recently. Should I be worried?',
+          timestamp: new Date('2026-04-22T10:42:00Z'),
+        },
+        {
+          sender: 'doctor',
+          message: 'Hello Sarah, thank you for sharing the details. I will review the scan and compare it with the AI findings.',
+          timestamp: new Date('2026-04-22T10:47:00Z'),
+        },
+        {
+          sender: 'doctor',
+          message: 'The lesion looks consistent with a benign melanocytic nevus. Please monitor it monthly and update me if the border, color, or size changes.',
+          timestamp: new Date('2026-04-22T11:32:00Z'),
+        },
+      ],
+    },
   },
   {
     scanId: 'SCAN-SEED-002',
@@ -133,6 +154,27 @@ const patients = [
       reviewStatus: 'pending_review',
       receivedAt: new Date('2026-04-25T09:00:00Z'),
     },
+    consultation: {
+      status: 'OPEN',
+      createdAt: new Date('2026-04-25T09:10:00Z'),
+      messages: [
+        {
+          sender: 'patient',
+          message: 'Hi Dr. Elena, this lesion has been there for years. I just want to confirm if it still looks safe.',
+          timestamp: new Date('2026-04-25T09:12:00Z'),
+        },
+        {
+          sender: 'doctor',
+          message: 'Hi Emma, I received your scan. Since there are no reported changes, I will still review the dermoscopic features carefully.',
+          timestamp: new Date('2026-04-25T09:18:00Z'),
+        },
+        {
+          sender: 'patient',
+          message: 'Thank you, Doctor. I can provide another photo if needed.',
+          timestamp: new Date('2026-04-25T09:20:00Z'),
+        },
+      ],
+    },
   },
   {
     scanId: 'SCAN-SEED-004',
@@ -161,6 +203,27 @@ const patients = [
       rejectionReason: 'False positive prediction',
       receivedAt: new Date('2026-04-23T16:45:00Z'),
       reviewedAt: new Date('2026-04-23T17:30:00Z'),
+    },
+    consultation: {
+      status: 'OPEN',
+      createdAt: new Date('2026-04-23T16:50:00Z'),
+      messages: [
+        {
+          sender: 'patient',
+          message: 'Dr. Elena, the AI result says melanoma and I am very concerned. What should I do next?',
+          timestamp: new Date('2026-04-23T16:52:00Z'),
+        },
+        {
+          sender: 'doctor',
+          message: 'Robert, I understand your concern. I am reviewing it now. The AI confidence is moderate, so clinical review is important here.',
+          timestamp: new Date('2026-04-23T16:58:00Z'),
+        },
+        {
+          sender: 'doctor',
+          message: 'After review, the clinical features look more like seborrheic keratosis than melanoma. I recommend an in-person check if the lesion keeps growing rapidly.',
+          timestamp: new Date('2026-04-23T17:34:00Z'),
+        },
+      ],
     },
   },
 ];
@@ -281,11 +344,13 @@ async function upsertPatient(patient, hashedPassword) {
     },
   });
 
-  return prisma.patientProfile.upsert({
+  const profile = await prisma.patientProfile.upsert({
     where: { userId: user.id },
     update: {},
     create: { userId: user.id },
   });
+
+  return { user, profile };
 }
 
 async function upsertScan(patient, patientProfile, doctorUserId) {
@@ -378,10 +443,70 @@ async function upsertObservation(caseReview, doctorProfileId, observation) {
   });
 }
 
+async function upsertConsultationWithMessages(patient, patientUser, doctorUser, scan) {
+  if (!patient.consultation) {
+    return;
+  }
+
+  const consultation = await prisma.consultation.upsert({
+    where: { scanId: scan.id },
+    update: {
+      patientId: patientUser.id,
+      doctorId: doctorUser.id,
+      status: patient.consultation.status,
+      createdAt: patient.consultation.createdAt,
+    },
+    create: {
+      scanId: scan.id,
+      patientId: patientUser.id,
+      doctorId: doctorUser.id,
+      status: patient.consultation.status,
+      createdAt: patient.consultation.createdAt,
+    },
+  });
+
+  await prisma.chatMessageReadReceipt.deleteMany({
+    where: { message: { consultationId: consultation.id } },
+  });
+  await prisma.chatMessageAttachment.deleteMany({
+    where: { message: { consultationId: consultation.id } },
+  });
+  await prisma.chatMessage.deleteMany({
+    where: { consultationId: consultation.id },
+  });
+
+  for (const seededMessage of patient.consultation.messages) {
+    const senderId = seededMessage.sender === 'doctor' ? doctorUser.id : patientUser.id;
+    await prisma.chatMessage.create({
+      data: {
+        consultationId: consultation.id,
+        senderId,
+        message: seededMessage.message,
+        timestamp: seededMessage.timestamp,
+        readReceipts: {
+          create: {
+            userId: senderId,
+            readAt: seededMessage.timestamp,
+          },
+        },
+      },
+    });
+  }
+
+  await prisma.consultation.update({
+    where: { id: consultation.id },
+    data: {
+      updatedAt: patient.consultation.messages.at(-1)?.timestamp || patient.consultation.createdAt,
+    },
+  });
+
+  console.log(`Consultation chat siap: ${patient.scanId} -> ${doctorUser.email}`);
+}
+
 async function main() {
   console.log('Memulai seeding doctor dashboard...');
 
-  const hashedPassword = await bcrypt.hash(password, 10);
+  const hashedPassword = await hashPassword(password, { validate: false });
   const doctorRecords = [];
 
   for (const doctor of doctors) {
@@ -392,8 +517,8 @@ async function main() {
 
   for (const patient of patients) {
     const doctor = doctorRecords[patient.doctorIndex];
-    const patientProfile = await upsertPatient(patient, hashedPassword);
-    const scan = await upsertScan(patient, patientProfile, doctor.user.id);
+    const patientRecord = await upsertPatient(patient, hashedPassword);
+    const scan = await upsertScan(patient, patientRecord.profile, doctor.user.id);
     const caseReview = await upsertCaseReview(patient, scan, doctor.profile.id);
 
     await prisma.caseAssignment.upsert({
@@ -411,6 +536,7 @@ async function main() {
     });
 
     await upsertObservation(caseReview, doctor.profile.id, patient.observation);
+    await upsertConsultationWithMessages(patient, patientRecord.user, doctor.user, scan);
     console.log(`Case siap: ${caseReview.caseId}`);
   }
 

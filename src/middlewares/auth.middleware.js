@@ -24,6 +24,24 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+const optionalVerifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+  } catch (err) {
+    // Public routes should stay public even when an optional token is stale.
+  }
+
+  return next();
+};
+
 const isAdmin = (req, res, next) => {
   if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({ 
@@ -67,4 +85,4 @@ const isPatient = (req, res, next) => {
 };
 
 // Pastikan nama di sini sesuai dengan yang akan di-import di route
-module.exports = { verifyToken, isAdmin, isAdminOrDoctor, isDoctor, isPatient };
+module.exports = { verifyToken, optionalVerifyToken, isAdmin, isAdminOrDoctor, isDoctor, isPatient };

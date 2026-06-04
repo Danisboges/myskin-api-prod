@@ -28,7 +28,7 @@ async function createUser(role, name) {
     data: {
       name,
       email: `${role}.${token}@example.com`,
-      password: await bcrypt.hash('password123', 10),
+      password: await bcrypt.hash('Str0ng!Pass2026', 10),
       role,
       gender: role === 'doctor' ? 'female' : 'male',
       status: 'active',

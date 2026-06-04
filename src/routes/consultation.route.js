@@ -150,4 +150,14 @@ router.post(
   consultationController.createPrescription
 );
 
+/**
+ * DELETE /api/v1/doctor/consultations/:consultationId
+ * Delete closed consultation (doctor only via mounted role + service authorization)
+ */
+router.delete(
+  '/:consultationId',
+  verifyToken,
+  consultationController.deleteClosedConsultation
+);
+
 module.exports = router;

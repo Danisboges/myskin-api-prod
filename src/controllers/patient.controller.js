@@ -428,6 +428,13 @@ const updateAccountSettings = async (req, res) => {
     });
   } catch (err) {
     console.error("Error updateAccountSettings:", err.message);
+    if (err.status === 400 || err.status === 409) {
+      return res.status(err.status).json({
+        status: "error",
+        message: err.message
+      });
+    }
+
     res.status(500).json({
       status: "error",
       message: err.message

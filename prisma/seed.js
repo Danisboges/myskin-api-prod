@@ -2,7 +2,7 @@ require('dotenv').config();
 const { Pool } = require('pg');
 const { PrismaPg } = require('@prisma/adapter-pg');
 const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs');
+const { hashPassword } = require('../src/utils/password.util');
 
 // 1. Buat koneksi pool menggunakan pg
 const pool = new Pool({ 
@@ -18,7 +18,7 @@ const prisma = new PrismaClient({ adapter });
 async function main() {
   console.log('Memulai proses seeding...');
 
-  const hashedPassword = await bcrypt.hash('password123', 10);
+  const hashedPassword = await hashPassword('Str0ng!Pass2026', { validate: false });
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@melanoma.com' },

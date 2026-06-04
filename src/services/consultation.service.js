@@ -8,6 +8,9 @@ const fs = require('fs');
 const path = require('path');
 const prisma = require('../config/prisma');
 const { publishConsultationEvent } = require('./consultation-events.service');
+const systemLogService = require('./system-log.service');
+const emailService = require('./email.service');
+const doctorNotificationService = require('./doctor-notification.service');
 
 const CHAT_ATTACHMENT_DIR = path.join(__dirname, '../../uploads/chat-attachments');
 const CHAT_ATTACHMENT_URL_PREFIX = '/uploads/chat-attachments';
@@ -89,6 +92,31 @@ const isAiTriageRequired = (scan = {}, caseReview = null) => {
   return !scan.isAnalyzed || concerningPrediction || lowConfidence || pendingReview;
 };
 
+const queueClinicalSummaryEmail = (consultation, report, reportData) => {
+  if (!reportData.emailClinicalSummary || !consultation.patient?.email) {
+    return false;
+  }
+
+  setImmediate(async () => {
+    try {
+      await emailService.sendClinicalSummaryEmail({
+        to: consultation.patient.email,
+        patientName: consultation.patient.name,
+        doctorName: consultation.doctor?.name,
+        scanId: consultation.scan?.scanId,
+        caseDisposition: report.caseDisposition,
+        finalClinicalNotes: report.finalClinicalNotes,
+        diagnosis: report.diagnosis,
+        recommendation: report.recommendation,
+      });
+    } catch (error) {
+      console.error('Failed to send clinical summary email:', error.message);
+    }
+  });
+
+  return true;
+};
+
 const buildDateRangeFilter = (startDate, endDate) => {
   if (!startDate && !endDate) {
     return undefined;
@@ -134,7 +162,7 @@ const initiateConsultation = async (userId, doctorId, scanId, initialMessage) =>
     // 2. Validasi bahwa scan milik patient ini
     const scan = await prisma.scan.findUnique({
       where: { scanId },
-      include: { patient: true }
+      include: { patient: true, caseReview: true }
     });
 
     if (!scan) {
@@ -194,6 +222,21 @@ const initiateConsultation = async (userId, doctorId, scanId, initialMessage) =>
       `Pasien ${patientProfile.user.name} memulai konsultasi untuk diskusi hasil scan`,
       'consultation_request'
     );
+
+    const reviewThreshold = 0.7;
+    if (isAiTriageRequired(scan, scan.caseReview)) {
+      await systemLogService.createSystemLog({
+        severity: "warning",
+        category: "ai_engine",
+        title: "AI confidence below review threshold",
+        description: "Scan analysis requires doctor review",
+        metadata: {
+          scanId: scan.scanId,
+          confidence: scan.aiConfidence,
+          threshold: reviewThreshold,
+        },
+      });
+    }
 
     return {
       id: consultation.id,
@@ -439,6 +482,8 @@ const getConsultationDetail = async (consultationId, userId) => {
         description: true,
         diagnosis: true,
         recommendation: true,
+        caseDisposition: true,
+        finalClinicalNotes: true,
         status: true,
         approvedByDoctorId: true,
         approvedAt: true,
@@ -668,8 +713,10 @@ const closeConsultation = async (consultationId, userId, reportData = {}) => {
         patientId: consultation.patientId,
         title: `Consultation Report - ${consultation.scan.scanId}`,
         description: reportData.notes || null,
-        diagnosis: reportData.diagnosis || '',
+        diagnosis: reportData.diagnosis || reportData.caseDisposition,
         recommendation: reportData.recommendation || '',
+        caseDisposition: reportData.caseDisposition,
+        finalClinicalNotes: reportData.finalClinicalNotes,
         status: 'approved',
         approvedByDoctorId: userId,
         approvedAt: new Date()
@@ -698,6 +745,12 @@ const closeConsultation = async (consultationId, userId, reportData = {}) => {
       'consultation_closed'
     );
 
+    const emailClinicalSummaryQueued = queueClinicalSummaryEmail(
+      consultation,
+      report,
+      reportData
+    );
+
     publishConsultationEvent(consultationId, 'consultation:status_updated', {
       status: updatedConsultation.status,
       closedAt: updatedConsultation.updatedAt
@@ -717,13 +770,70 @@ const closeConsultation = async (consultationId, userId, reportData = {}) => {
         diagnosis: report.diagnosis,
         recommendation: report.recommendation,
         notes: report.description,
+        caseDisposition: report.caseDisposition,
+        finalClinicalNotes: report.finalClinicalNotes,
         generatedAt: report.createdAt
       },
+      emailClinicalSummaryQueued,
       closedAt: updatedConsultation.updatedAt,
       message: 'Consultation closed successfully'
     };
   } catch (error) {
     throw new Error(`Failed to close consultation: ${error.message}`);
+  }
+};
+
+/**
+ * Delete closed consultation and its chat-related data.
+ * Reports are intentionally preserved because Report is tied to scanId/patientId,
+ * not consultationId, in the current schema.
+ */
+const deleteClosedConsultation = async (consultationId, doctorUserId) => {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const consultation = await tx.consultation.findUnique({
+        where: { id: consultationId },
+        select: {
+          id: true,
+          doctorId: true,
+          status: true
+        }
+      });
+
+      if (!consultation) {
+        throw new Error('Consultation not found');
+      }
+
+      if (consultation.doctorId !== doctorUserId) {
+        throw new Error('Unauthorized: Only assigned doctor can delete consultation');
+      }
+
+      if (consultation.status !== 'CLOSED') {
+        throw new Error('Only closed consultations can be deleted');
+      }
+
+      await tx.chatMessageReadReceipt.deleteMany({
+        where: { message: { consultationId } }
+      });
+      await tx.chatMessageAttachment.deleteMany({
+        where: { message: { consultationId } }
+      });
+      await tx.chatMessage.deleteMany({
+        where: { consultationId }
+      });
+      await tx.prescription.deleteMany({
+        where: { consultationId }
+      });
+      await tx.consultation.delete({
+        where: { id: consultationId }
+      });
+
+      return {
+        message: 'Consultation deleted successfully'
+      };
+    });
+  } catch (error) {
+    throw new Error(`Failed to delete consultation: ${error.message}`);
   }
 };
 
@@ -917,14 +1027,11 @@ const createConsultationNotification = async (
         ? 'case_request'
         : 'system_message';
 
-      await prisma.notification.create({
-        data: {
-          doctorId: user.doctorProfile.id,
-          title,
-          message,
-          type: doctorNotificationType,
-          isRead: false
-        }
+      await doctorNotificationService.createDoctorNotification({
+        doctorId: user.doctorProfile.id,
+        title,
+        message,
+        type: doctorNotificationType
       });
       return;
     }
@@ -982,6 +1089,7 @@ module.exports = {
   sendMessage,
   getChatMessages,
   closeConsultation,
+  deleteClosedConsultation,
   markMessagesAsRead,
   createPrescription,
   getAiAnalysis,

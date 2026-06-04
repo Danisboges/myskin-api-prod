@@ -511,12 +511,26 @@ const closeConsultation = async (req, res) => {
     const userId = req.user.id;
 
     // Validate input
-    const { diagnosis, recommendation, notes } = validateCloseConsultation(req.body);
+    const {
+      diagnosis,
+      recommendation,
+      notes,
+      caseDisposition,
+      finalClinicalNotes,
+      emailClinicalSummary
+    } = validateCloseConsultation(req.body);
 
     const result = await consultationService.closeConsultation(
       consultationId,
       userId,
-      { diagnosis, recommendation, notes }
+      {
+        diagnosis,
+        recommendation,
+        notes,
+        caseDisposition,
+        finalClinicalNotes,
+        emailClinicalSummary
+      }
     );
 
     return res.status(200).json({
@@ -558,6 +572,55 @@ const closeConsultation = async (req, res) => {
     return res.status(500).json({
       status: 'error',
       message: 'Failed to close consultation'
+    });
+  }
+};
+
+/**
+ * DELETE /api/v1/doctor/consultations/:consultationId
+ * Delete closed consultation (doctor only)
+ */
+const deleteClosedConsultation = async (req, res) => {
+  try {
+    const { consultationId } = req.params;
+    const userId = req.user.id;
+
+    const result = await consultationService.deleteClosedConsultation(
+      consultationId,
+      userId
+    );
+
+    return res.status(200).json({
+      status: 'success',
+      message: result.message
+    });
+  } catch (error) {
+    console.error('Error deleting consultation:', error.message);
+
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Consultation not found'
+      });
+    }
+
+    if (error.message.includes('Unauthorized')) {
+      return res.status(403).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Only closed consultations can be deleted')) {
+      return res.status(409).json({
+        status: 'error',
+        message: 'Only closed consultations can be deleted'
+      });
+    }
+
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to delete consultation'
     });
   }
 };
@@ -635,6 +698,20 @@ const markAllAsRead = async (req, res) => {
   } catch (error) {
     console.error('Error marking all as read:', error.message);
 
+    if (error.message.includes('not found')) {
+      return res.status(404).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('Unauthorized')) {
+      return res.status(403).json({
+        status: 'error',
+        message: error.message
+      });
+    }
+
     return res.status(500).json({
       status: 'error',
       message: 'Failed to mark all messages as read'
@@ -651,6 +728,7 @@ module.exports = {
   sendMessage,
   getChatMessages,
   closeConsultation,
+  deleteClosedConsultation,
   createPrescription,
   getAiAnalysis,
   streamConsultationEvents,

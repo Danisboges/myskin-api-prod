@@ -1,4 +1,6 @@
 const adminService = require("../services/admin.service");
+const fs = require("fs");
+const path = require("path");
 const {
   validateCreateUser,
   validateUpdateUser,
@@ -7,9 +9,14 @@ const {
   validateResetPassword,
   validateDoctorApproval,
   validateDoctorRejection,
-  validateAdminSettings,
+  validateAdminNotificationsSettings,
+  validateAdminOperationsSettings,
+  validateAdminPreferencesSettings,
   validatePaginationParams,
+  validateSystemLogFilters,
+  validateLogRetentionDays,
 } = require("../validators/admin.validator");
+const systemLogService = require("../services/system-log.service");
 
 // ==================== DASHBOARD CONTROLLERS ====================
 
@@ -48,16 +55,22 @@ const getSystemLogs = async (req, res) => {
   try {
     const { type, severity, page, limit } = req.query;
 
+    const filterErrors = validateSystemLogFilters({ type, severity });
+    if (filterErrors) {
+      return res.status(400).json({ status: "error", errors: filterErrors });
+    }
+
     const paginationErrors = validatePaginationParams(page, limit);
     if (paginationErrors) {
       return res.status(400).json({ status: "error", errors: paginationErrors });
     }
 
+    const pagination = await adminService.resolveAdminPagination(req.user.id, { page, limit });
     const logs = await adminService.getSystemLogs({
       type,
       severity,
-      page: page || 1,
-      limit: limit || 10,
+      page: pagination.page,
+      limit: pagination.limit,
     });
 
     res.status(200).json({ status: "success", data: logs });
@@ -130,12 +143,9 @@ const exportReport = async (req, res) => {
 
     // 1. Jalankan service (Service tetap menyimpan file ke folder uploads)
     const reportData = await adminService.exportReport(startDate, endDate, reportType, format);
-
-    // 2. Buat URL dinamis
-    // Misal: http://localhost:3000/api/v1/uploads/MySkin_Report_12345.pdf
     const protocol = req.protocol;
     const host = req.get('host');
-    const downloadUrl = `${protocol}://${host}/api/v1/uploads/${reportData.fileName}`;
+    const downloadUrl = `${protocol}://${host}/uploads/${reportData.fileName}`;
 
     // 3. Kirimkan JSON, bukan file-nya
     res.status(200).json({
@@ -164,12 +174,13 @@ const getAllUsers = async (req, res) => {
       return res.status(400).json({ status: "error", errors: paginationErrors });
     }
 
+    const pagination = await adminService.resolveAdminPagination(req.user.id, { page, limit });
     const users = await adminService.getAllUsers({
       search,
       role,
       status: status || "all",
-      page: page || 1,
-      limit: limit || 8,
+      page: pagination.page,
+      limit: pagination.limit,
       sortBy: sortBy || "createdAt",
       sortOrder: sortOrder || "desc",
     });
@@ -368,6 +379,9 @@ const deleteUser = async (req, res) => {
     if (err.status === 404) {
       return res.status(404).json({ status: "error", message: err.message });
     }
+    if (err.status === 409) {
+      return res.status(409).json({ status: "error", message: err.message });
+    }
     console.error("Error deleting user:", err);
     res.status(500).json({ status: "error", message: err.message });
   }
@@ -401,8 +415,8 @@ const resetUserPassword = async (req, res) => {
 
     res.status(200).json({ status: "success", ...result });
   } catch (err) {
-    if (err.status === 404) {
-      return res.status(404).json({ status: "error", message: err.message });
+    if (err.status === 400 || err.status === 404) {
+      return res.status(err.status).json({ status: "error", message: err.message });
     }
     console.error("Error resetting password:", err);
     res.status(500).json({ status: "error", message: err.message });
@@ -423,18 +437,20 @@ const getDoctorsSummary = async (req, res) => {
 
 const getAllDoctors = async (req, res) => {
   try {
-    const { search, status, page, limit } = req.query;
+    const { search, status, clinicId, page, limit } = req.query;
 
     const paginationErrors = validatePaginationParams(page, limit);
     if (paginationErrors) {
       return res.status(400).json({ status: "error", errors: paginationErrors });
     }
 
+    const pagination = await adminService.resolveAdminPagination(req.user.id, { page, limit });
     const doctors = await adminService.getAllDoctors({
       search,
       status: status || "all",
-      page: page || 1,
-      limit: limit || 8,
+      clinicId: clinicId || "all",
+      page: pagination.page,
+      limit: pagination.limit,
     });
 
     res.status(200).json({ status: "success", data: doctors });
@@ -598,13 +614,33 @@ const updateAdminProfile = async (req, res) => {
   }
 };
 
+const getImageExtension = (file) => {
+  const originalExtension = path.extname(file.originalname || "").toLowerCase();
+  if (originalExtension) {
+    return originalExtension;
+  }
+
+  const subtype = (file.mimetype || "").split("/")[1] || "jpg";
+  return `.${subtype === "jpeg" ? "jpg" : subtype}`;
+};
+
 const updateAdminPhoto = async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ status: "error", message: "No file uploaded" });
     }
 
-    const photoUrl = `/uploads/${req.file.filename}`;
+    const uploadDir = path.join(__dirname, "../../uploads/admin-profile");
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const extension = getImageExtension(req.file);
+    const filename = `admin_${req.user.id}_${Date.now()}${extension}`;
+    const filepath = path.join(uploadDir, filename);
+    fs.writeFileSync(filepath, req.file.buffer);
+
+    const photoUrl = `/uploads/admin-profile/${filename}`;
     const result = await adminService.updateAdminPhoto(req.user.id, photoUrl);
 
     res.status(200).json({ status: "success", data: { photoUrl, ...result } });
@@ -676,48 +712,24 @@ const updateAdminSettingsAccount = async (req, res) => {
   }
 };
 
-const updateAdminSettings2FA = async (req, res) => {
-  try {
-    const { enabled } = req.body;
-
-    if (typeof enabled !== "boolean") {
-      return res.status(400).json({
-        status: "error",
-        message: "enabled must be a boolean",
-      });
-    }
-
-    const result = await adminService.updateAdminSettings2FA(req.user.id, enabled);
-
-    // Log audit
-    await adminService.createAuditLog(
-      req.user.id,
-      req.user.name,
-      "UPDATE_SYSTEM_SETTINGS",
-      `Admin ${enabled ? "enabled" : "disabled"} 2FA`,
-      { ipAddress: req.ip, userAgent: req.get("User-Agent") }
-    );
-
-    res.status(200).json({ status: "success", ...result });
-  } catch (err) {
-    console.error("Error updating 2FA settings:", err);
-    res.status(500).json({ status: "error", message: err.message });
-  }
-};
-
 const updateAdminSettingsNotifications = async (req, res) => {
   try {
-    const { emailNotifications, verificationAlerts } = req.body;
-
-    const validationErrors = validateAdminSettings(req.body);
+    const validationErrors = validateAdminNotificationsSettings(req.body);
     if (validationErrors) {
       return res.status(400).json({ status: "error", errors: validationErrors });
     }
 
     const result = await adminService.updateAdminSettingsNotifications(
       req.user.id,
-      emailNotifications,
-      verificationAlerts
+      req.body
+    );
+
+    await adminService.createAuditLog(
+      req.user.id,
+      req.user.name,
+      "UPDATE_SYSTEM_SETTINGS",
+      "Admin updated notification settings",
+      { ipAddress: req.ip, userAgent: req.get("User-Agent") }
     );
 
     res.status(200).json({ status: "success", ...result });
@@ -727,45 +739,150 @@ const updateAdminSettingsNotifications = async (req, res) => {
   }
 };
 
-const updateAdminSettingsPrivacy = async (req, res) => {
+const updateAdminSettingsOperations = async (req, res) => {
   try {
-    const { dataVisibility } = req.body;
-
-    const validationErrors = validateAdminSettings(req.body);
+    const validationErrors = validateAdminOperationsSettings(req.body);
     if (validationErrors) {
       return res.status(400).json({ status: "error", errors: validationErrors });
     }
 
-    const result = await adminService.updateAdminSettingsPrivacy(req.user.id, dataVisibility);
+    const previousOperations = req.body.maintenanceMode !== undefined
+      ? await adminService.getAdminOperationsSettings(req.user.id)
+      : null;
+    const result = await adminService.updateAdminSettingsOperations(req.user.id, req.body);
 
-    // Log audit
+    if (
+      previousOperations &&
+      previousOperations.maintenanceMode !== result.data.maintenanceMode
+    ) {
+      await systemLogService.createSystemLog({
+        severity: result.data.maintenanceMode ? "warning" : "info",
+        category: "infrastructure",
+        title: result.data.maintenanceMode
+          ? "Maintenance mode enabled"
+          : "Maintenance mode disabled",
+        description: "Admin changed platform maintenance mode",
+        metadata: {
+          adminId: req.user.id,
+          maintenanceMode: result.data.maintenanceMode,
+        },
+      });
+    }
+
     await adminService.createAuditLog(
       req.user.id,
       req.user.name,
       "UPDATE_SYSTEM_SETTINGS",
-      `Admin updated privacy settings to ${dataVisibility}`,
+      "Admin updated operation settings",
       { ipAddress: req.ip, userAgent: req.get("User-Agent") }
     );
 
     res.status(200).json({ status: "success", ...result });
   } catch (err) {
-    console.error("Error updating privacy settings:", err);
+    console.error("Error updating operation settings:", err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+const getAdminSettingsOperations = async (req, res) => {
+  try {
+    const operations = await adminService.getAdminOperationsSettings(req.user.id);
+    res.status(200).json({ status: "success", data: operations });
+  } catch (err) {
+    console.error("Error getting operation settings:", err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+const cleanupExpiredAuditLogs = async (req, res) => {
+  try {
+    const result = await adminService.cleanupExpiredAuditLogs();
+
+    await systemLogService.createSystemLog({
+      severity: "info",
+      category: "system",
+      title: "Audit logs cleanup completed",
+      description: "Expired audit logs were cleaned up",
+      metadata: {
+        adminId: req.user.id,
+        deletedCount: result.deletedCount,
+      },
+    });
+
+    await adminService.createAuditLog(
+      req.user.id,
+      req.user.name,
+      "UPDATE_SYSTEM_SETTINGS",
+      `Admin cleaned up ${result.deletedCount} expired audit logs`,
+      { ipAddress: req.ip, userAgent: req.get("User-Agent") }
+    );
+
+    res.status(200).json({ status: "success", ...result });
+  } catch (err) {
+    console.error("Error cleaning up audit logs:", err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+};
+
+const cleanupSystemLogs = async (req, res) => {
+  try {
+    let retentionDays = req.body?.retentionDays;
+
+    if (retentionDays === undefined || retentionDays === null || retentionDays === "") {
+      const operations = await adminService.getAdminOperationsSettings(req.user.id);
+      retentionDays = operations.auditLogRetentionDays;
+    }
+
+    const retentionErrors = validateLogRetentionDays(retentionDays);
+    if (retentionErrors) {
+      return res.status(400).json({
+        status: "error",
+        message: retentionErrors.retentionDays,
+      });
+    }
+
+    const normalizedRetentionDays = Number(retentionDays);
+    const result = await systemLogService.cleanupExpiredSystemLogs(normalizedRetentionDays);
+
+    await systemLogService.createSystemLog({
+      severity: "info",
+      category: "system",
+      title: "System logs cleanup completed",
+      description: "Expired system logs were cleaned up",
+      metadata: {
+        adminId: req.user.id,
+        deletedCount: result.deletedCount,
+        retentionDays: normalizedRetentionDays,
+      },
+    });
+
+    res.status(200).json({
+      status: "success",
+      message: "Expired system logs cleaned up successfully",
+      deletedCount: result.deletedCount,
+    });
+  } catch (err) {
+    console.error("Error cleaning up system logs:", err);
     res.status(500).json({ status: "error", message: err.message });
   }
 };
 
 const updateAdminSettingsPreferences = async (req, res) => {
   try {
-    const { language } = req.body;
-
-    if (!language) {
-      return res.status(400).json({
-        status: "error",
-        message: "language is required",
-      });
+    const validationErrors = validateAdminPreferencesSettings(req.body);
+    if (validationErrors) {
+      return res.status(400).json({ status: "error", errors: validationErrors });
     }
 
-    const result = await adminService.updateAdminSettingsPreferences(req.user.id, language);
+    const result = await adminService.updateAdminSettingsPreferences(req.user.id, req.body);
+
+    await adminService.createAuditLog(
+      req.user.id,
+      req.user.name,
+      "UPDATE_SYSTEM_SETTINGS",
+      "Admin updated preference settings",
+      { ipAddress: req.ip, userAgent: req.get("User-Agent") }
+    );
 
     res.status(200).json({ status: "success", ...result });
   } catch (err) {
@@ -821,13 +938,15 @@ const getAuditLogs = async (req, res) => {
       return res.status(400).json({ status: "error", errors: paginationErrors });
     }
 
+    const pagination = await adminService.resolveAdminPagination(req.user.id, { page, limit });
     const logs = await adminService.getAuditLogs({
+      requestingAdminId: req.user.id,
       adminId,
       action,
       startDate,
       endDate,
-      page: page || 1,
-      limit: limit || 10,
+      page: pagination.page,
+      limit: pagination.limit,
     });
 
     res.status(200).json({ status: "success", data: logs });
@@ -873,11 +992,13 @@ module.exports = {
 
   // Settings
   getAdminSettings,
+  getAdminSettingsOperations,
   updateAdminSettingsAccount,
-  updateAdminSettings2FA,
   updateAdminSettingsNotifications,
-  updateAdminSettingsPrivacy,
+  updateAdminSettingsOperations,
   updateAdminSettingsPreferences,
+  cleanupExpiredAuditLogs,
+  cleanupSystemLogs,
 
   // Notifications
   getAdminNotifications,

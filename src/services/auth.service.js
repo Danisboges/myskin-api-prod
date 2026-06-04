@@ -1,8 +1,50 @@
 const prisma = require('../config/prisma');
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const crypto = require('crypto');
+const emailService = require('./email.service');
+const {
+  validateAndNormalizeEmail,
+  ensureEmailAvailable,
+} = require('../utils/email.util');
+const {
+  isMaintenanceModeActive,
+  createMaintenanceError,
+} = require('../utils/maintenance.util');
+const {
+  createAdminNotificationForEnabledAdmins,
+} = require('./admin-notification.service');
+const systemLogService = require('./system-log.service');
+const {
+  hashPassword,
+  verifyPassword,
+  assertStrongPassword,
+  generateSecureTemporaryPassword,
+} = require('../utils/password.util');
+
+const formatRegisteredUser = (user) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  status: user.status,
+  createdAt: user.createdAt,
+  ...(user.doctorProfile && {
+    doctorProfile: {
+      clinicId: user.doctorProfile.clinicId,
+      clinicName: user.doctorProfile.clinic?.name || null,
+      verificationStatus: user.doctorProfile.verificationStatus,
+      specialization: user.doctorProfile.specialization,
+      clinic: user.doctorProfile.clinic ? {
+        clinicId: user.doctorProfile.clinic.clinicId,
+        name: user.doctorProfile.clinic.name,
+        address: user.doctorProfile.clinic.address,
+        phone: user.doctorProfile.clinic.phone,
+        email: user.doctorProfile.clinic.email,
+      } : null,
+    },
+  }),
+});
 
 const registerUser = async (userData) => {
   const {
@@ -20,17 +62,41 @@ const registerUser = async (userData) => {
   const practitionerLicense = userData.practitionerLicense || userData.licenseNumber;
   const assignedRole = role || 'patient';
 
+  const normalizedEmail = validateAndNormalizeEmail(email);
+
   // 1. Validasi input wajib
-  if (!name || !email || !password || !gender) {
-    throw new Error("name, email, password, dan gender harus disediakan");
+  if (!name || !password || !gender) {
+    throw new Error("name, password, dan gender harus disediakan");
   }
 
   // 2. Cek email unik sebelum memproses lebih jauh
-  const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-  if (existingUser) throw new Error("Email sudah terdaftar");
+  await ensureEmailAvailable(prisma, normalizedEmail);
+
+  let selectedClinic = null;
+  if (assignedRole === 'doctor') {
+    if (!clinicId || typeof clinicId !== 'string' || clinicId.trim().length === 0) {
+      const error = new Error("clinicId harus disediakan untuk registrasi dokter");
+      error.status = 400;
+      throw error;
+    }
+
+    selectedClinic = await prisma.clinic.findUnique({
+      where: { clinicId: clinicId.trim() },
+      select: { clinicId: true, isActive: true },
+    });
+
+    if (!selectedClinic || !selectedClinic.isActive) {
+      const error = new Error("Clinic tidak ditemukan atau tidak aktif");
+      error.status = 400;
+      throw error;
+    }
+  }
 
   // 3. Persiapan data
-  const hashedPassword = await bcrypt.hash(password, 10);
+  const hashedPassword = await hashPassword(password, {
+    email: normalizedEmail,
+    name,
+  });
   
   // Pastikan gender sesuai enum (male/female)
   const normalizedGender = gender.toLowerCase();
@@ -42,7 +108,7 @@ const registerUser = async (userData) => {
   // Gunakan undefined agar Prisma menggunakan @default dari schema
   const prismaData = {
     name: name.trim(),
-    email: email.trim().toLowerCase(),
+    email: normalizedEmail,
     password: hashedPassword,
     role: assignedRole,
     gender: normalizedGender,
@@ -71,7 +137,7 @@ const registerUser = async (userData) => {
   } else if (assignedRole === 'doctor') {
     prismaData.doctorProfile = {
       create: {
-        clinicId: clinicId || undefined,
+        clinicId: selectedClinic.clinicId,
         verificationStatus: 'pending',
         practitionerLicense: practitionerLicense ? practitionerLicense.trim() : undefined,
         licenseFile: userData.medicalLicense || undefined,
@@ -88,7 +154,7 @@ const registerUser = async (userData) => {
   }
 
   try {
-    return await prisma.user.create({
+    const user = await prisma.user.create({
       data: prismaData,
       select: { 
         id: true, 
@@ -96,9 +162,37 @@ const registerUser = async (userData) => {
         email: true, 
         role: true, 
         status: true,
-        createdAt: true, 
+        createdAt: true,
+        doctorProfile: {
+          select: {
+            clinicId: true,
+            verificationStatus: true,
+            specialization: true,
+            clinic: {
+              select: {
+                clinicId: true,
+                name: true,
+                address: true,
+                phone: true,
+                email: true,
+              },
+            },
+          },
+        },
       }
     });
+
+    if (assignedRole === 'doctor') {
+      await createAdminNotificationForEnabledAdmins(
+        'doctor_approval',
+        'New doctor approval request',
+        `${user.name} is waiting for approval`,
+        'doctorApprovalAlerts',
+        { doctorId: user.id }
+      );
+    }
+
+    return formatRegisteredUser(user);
   } catch (error) {
     // Jika masih error 'not available', kemungkinan besar DB belum di-migrate reset
     console.error("DEBUG DB ERROR:", error);
@@ -106,7 +200,24 @@ const registerUser = async (userData) => {
   }
 };
 
-const loginUser = async (email, password) => {
+const createFailedLoginSystemLog = async (email, ipAddress) => {
+  if (!email) {
+    return null;
+  }
+
+  return systemLogService.createSystemLog({
+    severity: "warning",
+    category: "security",
+    title: "Failed login attempt",
+    description: "Invalid login credentials submitted",
+    metadata: {
+      email,
+      ipAddress,
+    },
+  });
+};
+
+const loginUser = async (email, password, context = {}) => {
   if (!email || !password) {
     throw new Error("Email dan password harus disediakan");
   }
@@ -117,16 +228,24 @@ const loginUser = async (email, password) => {
   });
 
   if (!user) {
+    await createFailedLoginSystemLog(email, context.ipAddress);
     throw new Error("Invalid email or password");
   }
 
-  const isPasswordValid = await bcrypt.compare(password, user.password);
+  const isPasswordValid = await verifyPassword(password, user.password);
   if (!isPasswordValid) {
+    await createFailedLoginSystemLog(email, context.ipAddress);
     throw new Error("Invalid email or password");
   }
 
   if (user.role === 'doctor') {
     assertDoctorCanLogin(user.doctorProfile?.verificationStatus);
+  }
+
+  assertUserIsActive(user.status);
+
+  if (user.role !== 'admin' && await isMaintenanceModeActive()) {
+    throw createMaintenanceError();
   }
   
   const token = createAuthToken(user);
@@ -141,6 +260,16 @@ const loginUser = async (email, password) => {
       verificationStatus: user.doctorProfile.verificationStatus,
     }),
   };
+};
+
+const assertUserIsActive = (status) => {
+  if (status === 'active') {
+    return status;
+  }
+
+  const error = new Error('Akun Anda tidak aktif. Silakan hubungi administrator.');
+  error.status = 403;
+  throw error;
 };
 
 const userDataForLoginInclude = () => ({
@@ -187,7 +316,7 @@ const requestPasswordReset = async (email) => {
   const normalizedEmail = email.trim().toLowerCase();
   const user = await prisma.user.findUnique({
     where: { email: normalizedEmail },
-    select: { id: true, email: true }
+    select: { id: true, name: true, email: true }
   });
 
   const genericMessage = 'Jika email terdaftar, instruksi reset password akan dikirim.';
@@ -208,7 +337,20 @@ const requestPasswordReset = async (email) => {
     }
   });
 
-  const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+  const resetUrl = emailService.buildPasswordResetUrl(resetToken);
+
+  try {
+    await emailService.sendPasswordResetEmail({
+      to: user.email,
+      name: user.name,
+      resetUrl,
+      expiresAt: passwordResetExpires
+    });
+  } catch (error) {
+    console.error('Failed to send password reset email:', error.message);
+    return { message: genericMessage };
+  }
+
   const result = { message: genericMessage };
 
   if (process.env.NODE_ENV !== 'production') {
@@ -227,11 +369,7 @@ const resetPassword = async (token, password) => {
     throw error;
   }
 
-  if (!password || typeof password !== 'string' || password.length < 6) {
-    const error = new Error('Password baru minimal 6 karakter');
-    error.status = 400;
-    throw error;
-  }
+  assertStrongPassword(password);
 
   const passwordResetToken = hashPasswordResetToken(token.trim());
   const user = await prisma.user.findFirst({
@@ -241,7 +379,10 @@ const resetPassword = async (token, password) => {
         gt: new Date()
       }
     },
-    select: { id: true }
+    select: {
+      id: true,
+      password: true
+    }
   });
 
   if (!user) {
@@ -250,10 +391,17 @@ const resetPassword = async (token, password) => {
     throw error;
   }
 
+  const isSamePassword = await verifyPassword(password, user.password);
+  if (isSamePassword) {
+    const error = new Error('Password baru harus berbeda dari password sebelumnya');
+    error.status = 400;
+    throw error;
+  }
+
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      password: await bcrypt.hash(password, 10),
+      password: await hashPassword(password, { validate: false }),
       passwordResetToken: null,
       passwordResetExpires: null
     }
@@ -349,19 +497,26 @@ const loginWithGoogleProfile = async ({ email, name, googleId }) => {
     throw new Error('Google profile is incomplete');
   }
 
-  let user = await prisma.user.findUnique({
-    where: { email: email.trim().toLowerCase() },
+  const normalizedEmail = validateAndNormalizeEmail(email);
+
+  let user = await prisma.user.findFirst({
+    where: {
+      email: {
+        equals: normalizedEmail,
+        mode: 'insensitive',
+      },
+    },
     include: userDataForLoginInclude(),
   });
 
   if (!user) {
-    const randomPassword = crypto.randomBytes(32).toString('hex');
+    const randomPassword = generateSecureTemporaryPassword();
     user = await prisma.user.create({
       data: {
         name: name.trim(),
-        email: email.trim().toLowerCase(),
+        email: normalizedEmail,
         googleId,
-        password: await bcrypt.hash(randomPassword, 10),
+        password: await hashPassword(randomPassword, { validate: false }),
         role: 'patient',
         status: 'active',
         patientProfile: {
@@ -392,6 +547,12 @@ const loginWithGoogleProfile = async ({ email, name, googleId }) => {
 
   if (user.role === 'doctor') {
     assertDoctorCanLogin(user.doctorProfile?.verificationStatus);
+  }
+
+  assertUserIsActive(user.status);
+
+  if (user.role !== 'admin' && await isMaintenanceModeActive()) {
+    throw createMaintenanceError();
   }
 
   return {

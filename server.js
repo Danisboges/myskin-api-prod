@@ -11,6 +11,11 @@ const doctorRoutes = require('./src/routes/doctor.route');
 const adminRoutes = require('./src/routes/admin.route');
 const patientRoutes = require('./src/routes/patient.route');
 const consultationRoutes = require('./src/routes/consultation.route');
+const clinicRoutes = require('./src/routes/clinic.route');
+const clinicRequestRoutes = require('./src/routes/clinic-request.route');
+const { maintenanceModeMiddleware } = require('./src/middlewares/maintenance.middleware');
+const { createCriticalSystemAlert } = require('./src/services/admin-notification.service');
+const systemLogService = require('./src/services/system-log.service');
 
 const app = express();
 const adminUiDir = path.join(__dirname, 'public', 'admin');
@@ -71,6 +76,8 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(maintenanceModeMiddleware);
+
 // 5. Report uploads 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -82,6 +89,8 @@ app.use("/api/user", userManagementRoutes);
 app.use('/api/v1/doctor', doctorRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/patient', patientRoutes);
+app.use('/api/v1/clinics', clinicRoutes);
+app.use('/api/v1/clinic-requests', clinicRequestRoutes);
 app.use('/api/v1/patient/consultations', consultationRoutes);
 app.use('/api/v1/doctor/consultations', consultationRoutes);
 
@@ -95,15 +104,44 @@ app.use((req, res) => {
 });
 
 // 7. GLOBAL ERROR HANDLING
-app.use((err, req, res, next) => {
+const globalErrorHandler = async (err, req, res, next) => {
   console.error('Error log:', err.message);
+  if ((err.status || 500) >= 500) {
+    await systemLogService.createSystemLog({
+      severity: "critical",
+      category: "system",
+      title: "Critical system error",
+      description: err.message || "Unhandled server error",
+      metadata: {
+        method: req.method,
+        path: req.originalUrl,
+        status: err.status || 500,
+      },
+    });
+
+    createCriticalSystemAlert(
+      "Critical system error",
+      err.message || "Unhandled server error",
+      { method: req.method, path: req.originalUrl }
+    ).catch((notificationError) => {
+      console.error("Failed to create system alert notification:", notificationError.message);
+    });
+  }
+
   res.status(err.status || 500).json({
     status: "error",
     message: err.message || 'Something went wrong!'
   });
-});
+};
+
+app.use(globalErrorHandler);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
+module.exports.globalErrorHandler = globalErrorHandler;

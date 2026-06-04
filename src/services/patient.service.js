@@ -8,6 +8,11 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
+const {
+  validateAndNormalizeEmail,
+  ensureEmailAvailable,
+} = require('../utils/email.util');
+const doctorNotificationService = require('./doctor-notification.service');
 
 // ==================== DASHBOARD ====================
 
@@ -451,21 +456,12 @@ const getScanDetail = async (userId, scanId, doctorUserId = null) => {
  * Helper: Create notification untuk doctor
  */
 const createDoctorNotification = async (doctorId, title, message, type = 'case_request') => {
-  try {
-    await prisma.notification.create({
-      data: {
-        doctorId,
-        notificationId: `ND-${Date.now()}`,
-        title,
-        message,
-        type,
-        isRead: false
-      }
-    });
-  } catch (err) {
-    console.error('Error creating doctor notification:', err.message);
-    // Jangan throw, notifikasi gagal tidak boleh menggagalkan operasi utama
-  }
+  return doctorNotificationService.createDoctorNotification({
+    doctorId,
+    title,
+    message,
+    type
+  });
 };
 
 /**
@@ -945,15 +941,33 @@ const getPatientSettings = async (userId) => {
 const updateAccountSettings = async (userId, updateData) => {
   const patient = await getPatientProfileOrThrow(userId);
   const settings = await getOrCreatePatientSettings(patient.id);
+  let normalizedEmail;
 
-  const updatedSettings = await prisma.patientSettings.update({
-    where: { id: settings.id },
-    data: {
-      ...(updateData.twoFactorEnabled !== undefined && { twoFactorEnabled: updateData.twoFactorEnabled })
-    }
-  });
+  if (updateData.email !== undefined) {
+    normalizedEmail = validateAndNormalizeEmail(updateData.email);
+    await ensureEmailAvailable(prisma, normalizedEmail, userId);
+  }
 
-  return updatedSettings;
+  const operations = [];
+
+  if (normalizedEmail) {
+    operations.push(prisma.user.update({
+      where: { id: userId },
+      data: { email: normalizedEmail },
+    }));
+  }
+
+  operations.push(
+    prisma.patientSettings.update({
+      where: { id: settings.id },
+      data: {
+        ...(updateData.twoFactorEnabled !== undefined && { twoFactorEnabled: updateData.twoFactorEnabled })
+      }
+    })
+  );
+
+  const results = await prisma.$transaction(operations);
+  return results[results.length - 1];
 };
 
 const updateNotificationSettings = async (userId, updateData) => {

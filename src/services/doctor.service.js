@@ -1,4 +1,14 @@
 const prisma = require('../config/prisma');
+const PDFDocument = require('pdfkit');
+const {
+  validateAndNormalizeEmail,
+  ensureEmailAvailable,
+} = require('../utils/email.util');
+const {
+  hashPassword,
+  verifyPassword,
+  assertStrongPassword,
+} = require('../utils/password.util');
 
 // ==================== DASHBOARD SERVICES ====================
 
@@ -406,6 +416,209 @@ const parsePositiveInteger = (value, fallback) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const formatDate = (value) => {
+  if (!value) {
+    return '-';
+  }
+
+  return new Date(value).toLocaleString('id-ID', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Asia/Jakarta'
+  });
+};
+
+const calculateAge = (birthDate) => {
+  if (!birthDate) {
+    return null;
+  }
+
+  const today = new Date();
+  const birth = new Date(birthDate);
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age -= 1;
+  }
+
+  return age;
+};
+
+const parseAiDetails = (value) => {
+  if (!value) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+};
+
+const normalizeReviewStatusLabel = (status) => ({
+  approved: 'Approved',
+  rejected: 'Rejected',
+  pending_review: 'Pending Review',
+  under_review: 'Under Review'
+}[status] || status || '-');
+
+const createPdfBuffer = async (render) => new Promise((resolve, reject) => {
+  const doc = new PDFDocument({
+    size: 'A4',
+    margin: 48,
+    info: {
+      Producer: 'MySkin Doctor Reporting',
+      Creator: 'MySkin Backend'
+    }
+  });
+  const chunks = [];
+
+  doc.on('data', (chunk) => chunks.push(chunk));
+  doc.on('end', () => resolve(Buffer.concat(chunks)));
+  doc.on('error', reject);
+
+  render(doc);
+  doc.end();
+});
+
+const ensureSpace = (doc, requiredHeight = 90) => {
+  if (doc.y + requiredHeight > doc.page.height - doc.page.margins.bottom) {
+    doc.addPage();
+  }
+};
+
+const drawHeader = (doc, title, subtitle) => {
+  doc.rect(0, 0, doc.page.width, 96).fill('#1f3f8b');
+  doc.fillColor('#ffffff').fontSize(22).font('Helvetica-Bold').text('MY SKIN', 48, 28);
+  doc.fontSize(16).font('Helvetica').text(title, 48, 54);
+  doc.fontSize(9).text(subtitle, 48, 75);
+  doc.moveDown(3);
+  doc.fillColor('#172033');
+};
+
+const drawSectionTitle = (doc, title) => {
+  ensureSpace(doc, 70);
+  doc.moveDown(0.6);
+  doc.fillColor('#1f3f8b').fontSize(13).font('Helvetica-Bold').text(title.toUpperCase());
+  doc.moveTo(48, doc.y + 5).lineTo(doc.page.width - 48, doc.y + 5).strokeColor('#dbe3ef').stroke();
+  doc.moveDown(0.9);
+  doc.fillColor('#172033').strokeColor('#000000');
+};
+
+const drawKeyValue = (doc, label, value) => {
+  ensureSpace(doc, 24);
+  const startY = doc.y;
+  doc.fontSize(9).font('Helvetica-Bold').fillColor('#334155').text(label, 48, startY, {
+    width: 155
+  });
+  doc.font('Helvetica').fillColor('#172033').text(value === undefined || value === null || value === '' ? '-' : String(value), 210, startY, {
+    width: doc.page.width - 258
+  });
+  doc.moveDown(0.35);
+};
+
+const drawParagraph = (doc, title, value) => {
+  ensureSpace(doc, 80);
+  doc.fontSize(10).font('Helvetica-Bold').fillColor('#334155').text(title);
+  doc.moveDown(0.2);
+  doc.fontSize(9).font('Helvetica').fillColor('#172033').text(value || '-', {
+    align: 'left',
+    lineGap: 2
+  });
+  doc.moveDown(0.6);
+};
+
+const buildCaseHistoryWhere = (doctorProfileId, filters = {}) => {
+  const { search, diagnosis, status, startDate, endDate } = filters;
+  const reviewStatus = normalizeReviewStatus(status);
+  const parsedStartDate = parseOptionalDate(startDate, 'startDate');
+  const parsedEndDate = parseOptionalDate(endDate, 'endDate');
+
+  if (parsedStartDate && parsedEndDate && parsedStartDate > parsedEndDate) {
+    throw createHttpError('endDate must be after startDate', 400);
+  }
+
+  const whereClause = {
+    doctorId: doctorProfileId,
+    reviewStatus: { not: 'pending_review' }
+  };
+
+  if (reviewStatus) {
+    whereClause.reviewStatus = reviewStatus;
+  }
+
+  if (diagnosis) {
+    whereClause.finalDiagnosis = { contains: diagnosis, mode: 'insensitive' };
+  }
+
+  if (parsedStartDate || parsedEndDate) {
+    whereClause.reviewedAt = {};
+    if (parsedStartDate) {
+      whereClause.reviewedAt.gte = parsedStartDate;
+    }
+    if (parsedEndDate) {
+      whereClause.reviewedAt.lte = parsedEndDate;
+    }
+  }
+
+  if (search) {
+    whereClause.OR = [
+      {
+        scan: {
+          is: {
+            patient: {
+              is: {
+                user: {
+                  is: {
+                    name: { contains: search, mode: 'insensitive' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      { caseId: { contains: search, mode: 'insensitive' } }
+    ];
+  }
+
+  return whereClause;
+};
+
+const getDoctorProfileForUser = async (userId) => {
+  const doctorProfile = await prisma.doctorProfile.findUnique({
+    where: { userId },
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      },
+      clinic: {
+        select: {
+          clinicId: true,
+          name: true
+        }
+      }
+    }
+  });
+
+  if (!doctorProfile) {
+    throw createHttpError('Doctor profile not found', 404);
+  }
+
+  return doctorProfile;
+};
+
 const parseOptionalDate = (value, fieldName) => {
   if (!value) {
     return undefined;
@@ -446,70 +659,14 @@ const normalizeReviewStatus = (status) => {
  */
 const getCaseHistory = async (userId, filters = {}) => {
   try {
-    const { search, diagnosis, status, startDate, endDate, page = 1, limit = 10 } = filters;
+    const { page = 1, limit = 10 } = filters;
     const pageNumber = parsePositiveInteger(page, 1);
     const limitNumber = Math.min(parsePositiveInteger(limit, 10), 100);
     const skip = (pageNumber - 1) * limitNumber;
-    const reviewStatus = normalizeReviewStatus(status);
-    const parsedStartDate = parseOptionalDate(startDate, 'startDate');
-    const parsedEndDate = parseOptionalDate(endDate, 'endDate');
-
-    if (parsedStartDate && parsedEndDate && parsedStartDate > parsedEndDate) {
-      throw createHttpError('endDate must be after startDate', 400);
-    }
 
     // Get doctor profile from userId
-    const doctorProfile = await prisma.doctorProfile.findUnique({
-      where: { userId }
-    });
-
-    if (!doctorProfile) {
-      throw createHttpError('Doctor profile not found', 404);
-    }
-
-    const whereClause = {
-      doctorId: doctorProfile.id,
-      reviewStatus: { not: 'pending_review' }
-    };
-
-    if (reviewStatus) {
-      whereClause.reviewStatus = reviewStatus;
-    }
-
-    if (diagnosis) {
-      whereClause.finalDiagnosis = { contains: diagnosis, mode: 'insensitive' };
-    }
-
-    if (parsedStartDate || parsedEndDate) {
-      whereClause.reviewedAt = {};
-      if (parsedStartDate) {
-        whereClause.reviewedAt.gte = parsedStartDate;
-      }
-      if (parsedEndDate) {
-        whereClause.reviewedAt.lte = parsedEndDate;
-      }
-    }
-
-    if (search) {
-      whereClause.OR = [
-        {
-          scan: {
-            is: {
-              patient: {
-                is: {
-                  user: {
-                    is: {
-                      name: { contains: search, mode: 'insensitive' }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        { caseId: { contains: search, mode: 'insensitive' } }
-      ];
-    }
+    const doctorProfile = await getDoctorProfileForUser(userId);
+    const whereClause = buildCaseHistoryWhere(doctorProfile.id, filters);
 
     const total = await prisma.caseReview.count({ where: whereClause });
 
@@ -563,6 +720,268 @@ const getCaseHistory = async (userId, filters = {}) => {
     });
 
     throw createHttpError(`Failed to get case history: ${error.message}`, 500);
+  }
+};
+
+const fetchDoctorCaseForReport = async (userId, caseId) => {
+  const doctorProfile = await getDoctorProfileForUser(userId);
+  const caseReview = await prisma.caseReview.findUnique({
+    where: { caseId },
+    include: {
+      doctor: {
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+          clinic: { select: { clinicId: true, name: true } }
+        }
+      },
+      scan: {
+        include: {
+          patient: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  gender: true,
+                  birthDate: true
+                }
+              }
+            }
+          }
+        }
+      },
+      observations: {
+        orderBy: { createdAt: 'asc' },
+        include: {
+          doctor: {
+            include: {
+              user: { select: { name: true } }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  if (!caseReview) {
+    throw createHttpError('Case not found', 404);
+  }
+
+  const assignment = await prisma.caseAssignment.findUnique({
+    where: {
+      doctorId_caseId: {
+        doctorId: doctorProfile.id,
+        caseId
+      }
+    }
+  });
+
+  if (caseReview.doctorId !== doctorProfile.id && !assignment) {
+    throw createHttpError('Unauthorized: Case is not assigned to this doctor', 403);
+  }
+
+  return { doctorProfile, caseReview };
+};
+
+const renderCaseReportPdf = (doc, caseReview, doctorProfile) => {
+  const patientUser = caseReview.scan?.patient?.user || {};
+  const scan = caseReview.scan || {};
+  const doctorUser = doctorProfile.user || caseReview.doctor?.user || {};
+  const aiDetails = parseAiDetails(scan.aiDetails);
+
+  drawHeader(
+    doc,
+    'Doctor Case Report',
+    `Generated at ${formatDate(new Date())}`
+  );
+
+  drawSectionTitle(doc, 'Report Summary');
+  drawKeyValue(doc, 'Case ID', caseReview.caseId);
+  drawKeyValue(doc, 'Status', normalizeReviewStatusLabel(caseReview.reviewStatus));
+  drawKeyValue(doc, 'Received At', formatDate(caseReview.receivedAt));
+  drawKeyValue(doc, 'Reviewed At', formatDate(caseReview.reviewedAt));
+  drawKeyValue(doc, 'Doctor', doctorUser.name || '-');
+  drawKeyValue(doc, 'Clinic', doctorProfile.clinic?.name || caseReview.doctor?.clinic?.name || '-');
+
+  drawSectionTitle(doc, 'Patient Information');
+  drawKeyValue(doc, 'Patient Name', patientUser.name);
+  drawKeyValue(doc, 'Patient Email', patientUser.email);
+  drawKeyValue(doc, 'Gender', patientUser.gender);
+  drawKeyValue(doc, 'Age', calculateAge(patientUser.birthDate) || '-');
+  drawKeyValue(doc, 'Date of Birth', patientUser.birthDate ? formatDate(patientUser.birthDate) : '-');
+
+  drawSectionTitle(doc, 'Clinical Scan');
+  drawKeyValue(doc, 'Scan ID', scan.scanId);
+  drawKeyValue(doc, 'Body Site', scan.bodySite || '-');
+  drawKeyValue(doc, 'Complaint', scan.complaint || '-');
+  drawKeyValue(doc, 'Patient Notes', scan.notes || '-');
+  drawKeyValue(doc, 'Image URL', scan.imageUrl || '-');
+  drawKeyValue(doc, 'Uploaded At', formatDate(scan.uploadedAt || scan.createdAt));
+
+  drawSectionTitle(doc, 'AI Analysis');
+  drawKeyValue(doc, 'AI Prediction', scan.aiPrediction || '-');
+  drawKeyValue(doc, 'AI Confidence', scan.aiConfidence !== null && scan.aiConfidence !== undefined ? `${Math.round(scan.aiConfidence * 100)}%` : '-');
+  drawKeyValue(doc, 'Analyzed At', formatDate(scan.analyzeCompletedAt));
+  if (aiDetails.length > 0) {
+    aiDetails.forEach((item, index) => {
+      const confidence = typeof item.confidence === 'number'
+        ? `${Math.round(item.confidence * 100)}%`
+        : item.confidence || '-';
+      drawKeyValue(doc, `AI Differential ${index + 1}`, `${item.label || item.name || '-'} (${confidence})`);
+    });
+  } else {
+    drawParagraph(doc, 'AI Details', scan.aiDetails || 'No structured AI details available.');
+  }
+
+  drawSectionTitle(doc, 'Doctor Review');
+  drawKeyValue(doc, 'Final Diagnosis', caseReview.finalDiagnosis || '-');
+  drawKeyValue(doc, 'Review Status', normalizeReviewStatusLabel(caseReview.reviewStatus));
+  drawKeyValue(doc, 'Zoom', caseReview.zoom || '-');
+  drawKeyValue(doc, 'Light', caseReview.light || '-');
+  drawParagraph(doc, 'Physician Observation', caseReview.physicianObservation || 'No physician observation recorded.');
+  if (caseReview.rejectionReason) {
+    drawParagraph(doc, 'Rejection Reason', caseReview.rejectionReason);
+  }
+
+  drawSectionTitle(doc, 'Observation Timeline');
+  if (caseReview.observations?.length) {
+    caseReview.observations.forEach((observation, index) => {
+      drawParagraph(
+        doc,
+        `${index + 1}. ${formatDate(observation.createdAt)} - ${observation.doctor?.user?.name || 'Doctor'}`,
+        observation.observation
+      );
+    });
+  } else {
+    drawParagraph(doc, 'Timeline', 'No additional doctor observations recorded.');
+  }
+
+  drawSectionTitle(doc, 'Clinical Recommendation');
+  const recommendation = caseReview.reviewStatus === 'rejected'
+    ? 'AI diagnosis was rejected by the doctor. Follow the final clinical diagnosis and consider additional clinical review if symptoms progress.'
+    : 'Continue patient monitoring according to the final clinical diagnosis. Escalate to in-person evaluation if lesion size, color, border, or symptoms change.';
+  drawParagraph(doc, 'Recommendation', recommendation);
+};
+
+const generateDoctorCaseReportPdf = async (userId, caseId) => {
+  try {
+    const { doctorProfile, caseReview } = await fetchDoctorCaseForReport(userId, caseId);
+    const buffer = await createPdfBuffer((doc) => renderCaseReportPdf(doc, caseReview, doctorProfile));
+
+    return {
+      buffer,
+      fileName: `MySkin_Doctor_Case_Report_${caseId}.pdf`,
+      contentType: 'application/pdf'
+    };
+  } catch (error) {
+    if (error.status) {
+      throw error;
+    }
+
+    throw createHttpError(`Failed to generate case report PDF: ${error.message}`, 500);
+  }
+};
+
+const generateDoctorCaseHistoryPdf = async (userId, filters = {}) => {
+  try {
+    const doctorProfile = await getDoctorProfileForUser(userId);
+    const whereClause = buildCaseHistoryWhere(doctorProfile.id, filters);
+    const cases = await prisma.caseReview.findMany({
+      where: whereClause,
+      include: {
+        scan: {
+          include: {
+            patient: {
+              include: {
+                user: {
+                  select: {
+                    name: true,
+                    email: true,
+                    gender: true,
+                    birthDate: true
+                  }
+                }
+              }
+            }
+          }
+        },
+        observations: {
+          orderBy: { createdAt: 'asc' }
+        }
+      },
+      orderBy: { reviewedAt: 'desc' },
+      take: 500
+    });
+
+    const buffer = await createPdfBuffer((doc) => {
+      drawHeader(
+        doc,
+        'Doctor Case History',
+        `Generated at ${formatDate(new Date())}`
+      );
+
+      drawSectionTitle(doc, 'Export Information');
+      drawKeyValue(doc, 'Doctor', doctorProfile.user?.name || '-');
+      drawKeyValue(doc, 'Email', doctorProfile.user?.email || '-');
+      drawKeyValue(doc, 'Specialization', doctorProfile.specialization || '-');
+      drawKeyValue(doc, 'Clinic', doctorProfile.clinic?.name || '-');
+      drawKeyValue(doc, 'Total Cases', cases.length);
+      drawKeyValue(doc, 'Filters', [
+        filters.search ? `search=${filters.search}` : null,
+        filters.diagnosis ? `diagnosis=${filters.diagnosis}` : null,
+        filters.status ? `status=${filters.status}` : null,
+        filters.startDate ? `startDate=${filters.startDate}` : null,
+        filters.endDate ? `endDate=${filters.endDate}` : null
+      ].filter(Boolean).join(', ') || 'No filters');
+
+      const totalApproved = cases.filter((item) => item.reviewStatus === 'approved').length;
+      const totalRejected = cases.filter((item) => item.reviewStatus === 'rejected').length;
+      const averageConfidence = cases.length
+        ? Math.round((cases.reduce((sum, item) => sum + (item.scan?.aiConfidence || 0), 0) / cases.length) * 100)
+        : 0;
+
+      drawSectionTitle(doc, 'Summary');
+      drawKeyValue(doc, 'Approved Cases', totalApproved);
+      drawKeyValue(doc, 'Rejected Cases', totalRejected);
+      drawKeyValue(doc, 'Average AI Confidence', cases.length ? `${averageConfidence}%` : '-');
+
+      drawSectionTitle(doc, 'Case Details');
+      if (cases.length === 0) {
+        drawParagraph(doc, 'No Data', 'No case history matched the selected filters.');
+        return;
+      }
+
+      cases.forEach((caseReview, index) => {
+        const patientUser = caseReview.scan?.patient?.user || {};
+        const scan = caseReview.scan || {};
+        ensureSpace(doc, 160);
+        doc.fontSize(11).font('Helvetica-Bold').fillColor('#172033').text(`${index + 1}. ${caseReview.caseId}`);
+        doc.moveDown(0.3);
+        drawKeyValue(doc, 'Patient', `${patientUser.name || '-'} (${patientUser.gender || '-'}, ${calculateAge(patientUser.birthDate) || '-'} years)`);
+        drawKeyValue(doc, 'Reviewed At', formatDate(caseReview.reviewedAt));
+        drawKeyValue(doc, 'Status', normalizeReviewStatusLabel(caseReview.reviewStatus));
+        drawKeyValue(doc, 'Body Site', scan.bodySite || '-');
+        drawKeyValue(doc, 'AI Prediction', `${scan.aiPrediction || '-'}${scan.aiConfidence !== null && scan.aiConfidence !== undefined ? ` (${Math.round(scan.aiConfidence * 100)}%)` : ''}`);
+        drawKeyValue(doc, 'Final Diagnosis', caseReview.finalDiagnosis || '-');
+        drawParagraph(doc, 'Clinical Notes', caseReview.physicianObservation || scan.complaint || 'No clinical notes recorded.');
+        if (caseReview.rejectionReason) {
+          drawParagraph(doc, 'Rejection Reason', caseReview.rejectionReason);
+        }
+      });
+    });
+
+    return {
+      buffer,
+      fileName: `MySkin_Doctor_Case_History_${Date.now()}.pdf`,
+      contentType: 'application/pdf'
+    };
+  } catch (error) {
+    if (error.status) {
+      throw error;
+    }
+
+    throw createHttpError(`Failed to generate case history PDF: ${error.message}`, 500);
   }
 };
 
@@ -816,14 +1235,26 @@ const updateAccountSettings = async (userId, updates) => {
     });
 
     if (newPassword) {
-      const bcrypt = require('bcryptjs');
-      const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+      const isPasswordValid = await verifyPassword(currentPassword, user.password);
 
       if (!isPasswordValid) {
-        throw new Error('Current password is incorrect');
+        const error = new Error('Current password is incorrect');
+        error.status = 400;
+        throw error;
       }
 
-      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      const isSamePassword = await verifyPassword(newPassword, user.password);
+      if (isSamePassword) {
+        const error = new Error('Password baru harus berbeda dari password sebelumnya');
+        error.status = 400;
+        throw error;
+      }
+
+      assertStrongPassword(newPassword, {
+        email: user.email,
+        name: user.name,
+      });
+      const hashedPassword = await hashPassword(newPassword, { validate: false });
 
       await prisma.user.update({
         where: { id: userId },
@@ -831,10 +1262,13 @@ const updateAccountSettings = async (userId, updates) => {
       });
     }
 
-    if (email) {
+    if (email !== undefined) {
+      const normalizedEmail = validateAndNormalizeEmail(email);
+      await ensureEmailAvailable(prisma, normalizedEmail, userId);
+
       await prisma.user.update({
         where: { id: userId },
-        data: { email }
+        data: { email: normalizedEmail }
       });
     }
 
@@ -843,6 +1277,9 @@ const updateAccountSettings = async (userId, updates) => {
       message: 'Account settings updated successfully'
     };
   } catch (error) {
+    if (error.status) {
+      throw error;
+    }
     throw new Error(`Failed to update account settings: ${error.message}`);
   }
 };
@@ -1039,6 +1476,8 @@ module.exports = {
 
   // Case History
   getCaseHistory,
+  generateDoctorCaseHistoryPdf,
+  generateDoctorCaseReportPdf,
   getPatientEvolution,
 
   // Profile

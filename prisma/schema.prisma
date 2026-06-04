@@ -60,6 +60,12 @@ enum AuditAction {
   RESET_PASSWORD
   APPROVE_DOCTOR
   REJECT_DOCTOR
+  CREATE_CLINIC
+  UPDATE_CLINIC
+  DELETE_CLINIC
+  CREATE_CLINIC_REQUEST
+  APPROVE_CLINIC_REQUEST
+  REJECT_CLINIC_REQUEST
   UPDATE_SYSTEM_SETTINGS
   GENERATE_REPORT
 }
@@ -114,7 +120,8 @@ model DoctorProfile {
   userId              String   @unique
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  clinicId            String?    
+  clinicId            String?
+  clinic              Clinic?  @relation(fields: [clinicId], references: [clinicId], onDelete: SetNull)
   verificationStatus  String   @default("unverified") // unverified, pending, verified
   practitionerLicense String?  
   licenseFile         String?
@@ -130,6 +137,49 @@ model DoctorProfile {
   settings            DoctorSettings?
   notifications       Notification[]
   caseAssignments     CaseAssignment[]
+}
+
+model Clinic {
+  id          String          @id @default(uuid())
+  clinicId    String          @unique @default(uuid())
+  name        String
+  address     String?         @db.Text
+  phone       String?
+  email       String?
+  isActive    Boolean         @default(true)
+  doctors     DoctorProfile[]
+  requests    ClinicRequest[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([name])
+  @@index([isActive])
+}
+
+model ClinicRequest {
+  id                  String   @id @default(uuid())
+  requestId           String   @unique @default(uuid())
+  clinicName          String
+  address             String?  @db.Text
+  phone               String?
+  email               String?
+  requesterName       String
+  requesterEmail      String
+  requesterPhone      String?
+  message             String?  @db.Text
+  status              String   @default("pending")
+  reviewNote          String?  @db.Text
+  reviewedByAdminId   String?
+  reviewedByAdminName String?
+  reviewedAt          DateTime?
+  clinicId            String?
+  clinic              Clinic?  @relation(fields: [clinicId], references: [clinicId], onDelete: SetNull)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([clinicName])
+  @@index([requesterEmail])
 }
 
 model DoctorSettings {
@@ -343,6 +393,8 @@ model Report {
   description        String?  @db.Text
   diagnosis          String   
   recommendation     String?  @db.Text 
+  caseDisposition    String?
+  finalClinicalNotes String?  @db.Text
   pdfUrl             String?  
   
   status             String   @default("draft") 
@@ -406,8 +458,17 @@ model AdminSettings {
   twoFactorEnabled   Boolean        @default(false)
   emailNotifications Boolean        @default(true)
   verificationAlerts Boolean        @default(true)
+  doctorApprovalAlerts Boolean      @default(true)
+  clinicRequestAlerts Boolean       @default(true)
+  systemAlerts       Boolean        @default(true)
+  weeklyDigest       Boolean        @default(false)
+  defaultPageSize    Int            @default(8)
+  auditLogRetentionDays Int         @default(180)
+  maintenanceMode    Boolean        @default(false)
+  deleteConfirmationRequired Boolean @default(true)
   dataVisibility     DataVisibility @default(restricted_clinical_team_only)
   language           String         @default("English (US)")
+  timezone           String         @default("Asia/Jakarta")
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 }

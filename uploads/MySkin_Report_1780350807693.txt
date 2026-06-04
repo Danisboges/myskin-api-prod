@@ -1,0 +1,87 @@
+=========================================
+MY SKIN - MELANOMA DETECTION REPORT
+=========================================
+Report Type : SYSTEM_OVERVIEW
+Period      : 2026-01-01 to 2026-06-02
+Generated At: 2/6/2026, 04.53.27
+-----------------------------------------
+
+EXECUTIVE SUMMARY
+- Total User Baru               : 19 User
+- Pasien Baru                   : 12 Pasien
+- Dokter Baru                   : 5 Dokter
+- Klinik Baru                   : 1 Klinik
+- Total Scan Dilakukan          : 9 Scan
+- Scan Sudah Dianalisis         : 9 Scan (100%)
+- Kasus Risiko Melanoma         : 6 Kasus (67%)
+- Kasus Benign                  : 0 Kasus
+- Konsultasi Selesai            : 1 dari 2 Sesi (50%)
+- Rata-rata Confidence AI       : 85%
+
+USER, DOCTOR, AND CLINIC OVERVIEW
+- User Aktif                    : 16
+- User Pending                  : 2
+- User Inactive                 : 1
+- User Suspended                : 0
+- Dokter Terverifikasi          : 4
+- Dokter Menunggu Approval      : 0
+- Klinik Aktif                  : 1
+- Klinik Nonaktif               : 0
+
+CLINIC DOCTOR DISTRIBUTION
+1. kosambi (Active) - 1 dokter
+
+AI SCAN ANALYSIS
+- Total Scan                    : 9
+- Scan Dibagikan ke Dokter      : 4
+- Melanoma / High Risk          : 6
+- Benign / Low Risk             : 0
+- Belum Terklasifikasi          : 3
+- Confidence Terendah           : 65%
+- Confidence Tertinggi          : 91%
+
+AI PREDICTION BREAKDOWN
+1. Malignant Melanoma: 6 scan (67%)
+2. Melanocytic Nevus: 2 scan (22%)
+3. Seborrheic Keratosis: 1 scan (11%)
+
+BODY SITE BREAKDOWN
+1. arm: 5 scan (56%)
+2. Back: 1 scan (11%)
+3. Chest: 1 scan (11%)
+4. Right Arm: 1 scan (11%)
+5. Left Shoulder: 1 scan (11%)
+
+CONSULTATION AND REPORT PERFORMANCE
+- Total Konsultasi              : 2
+- Konsultasi Terbuka            : 1
+- Konsultasi Selesai            : 1
+- Completion Rate               : 50%
+- Total Report Klinis           : 1
+- Report Approved               : 1
+- Report Draft                  : 0
+
+CONSULTATION BY DOCTOR
+1. Dr Test Messages: 1 konsultasi (50%)
+2. Dr. James Mitchell: 1 konsultasi (50%)
+
+RECENT SCANS
+1. 2026-05-26 | Sarah TDD Patient | arm | Malignant Melanoma | 91% | Analyzed
+2. 2026-05-26 | Sarah TDD Patient | arm | Malignant Melanoma | 91% | Analyzed
+3. 2026-05-26 | Sarah TDD Patient | arm | Malignant Melanoma | 91% | Analyzed
+4. 2026-05-26 | Sarah TDD Patient | arm | Malignant Melanoma | 91% | Analyzed
+5. 2026-05-26 | Sarah TDD Patient | arm | Malignant Melanoma | 91% | Analyzed
+6. 2026-05-14 | Robert Taylor | Right Arm | Malignant Melanoma | 65% | Analyzed
+7. 2026-05-14 | Emma Wilson | Chest | Melanocytic Nevus | 85% | Analyzed
+8. 2026-05-14 | Michael Chen | Back | Seborrheic Keratosis | 72% | Analyzed
+
+RECENT CONSULTATIONS
+1. 2026-05-26 | Sarah TDD Patient dengan Dr Test Messages | Scan bef476c7-c538-451a-8f17-fdd47aefd888 | Malignant Melanoma | OPEN
+2. 2026-05-23 | Michael Chen dengan Dr. James Mitchell | Scan SCAN-SEED-002 | Seborrheic Keratosis | CLOSED
+
+OPERATIONAL INSIGHTS
+1. 6 dari 9 scan (67%) terindikasi risiko melanoma dan perlu prioritas monitoring klinis.
+2. Tidak ada konsultasi terbuka pada periode ini.
+3. Rata-rata confidence AI berada di 85%, dengan confidence terendah 65% dan tertinggi 91%.
+-----------------------------------------
+*Dokumen ini digenerate secara otomatis oleh sistem MySkin.*

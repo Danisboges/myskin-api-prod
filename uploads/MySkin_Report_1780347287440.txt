@@ -1,0 +1,16 @@
+=========================================
+MY SKIN - MELANOMA DETECTION REPORT
+=========================================
+Report Type : SYSTEM_OVERVIEW
+Period      : 2026-01-01 to 2026-06-02
+Generated At: 2/6/2026, 03.54.47
+-----------------------------------------
+SUMMARY STATISTICS:
+- Pasien Baru Terdaftar         : 12 Pasien
+- Total Deteksi AI Dilakukan    : 9 Scan
+- Hasil Risiko Tinggi (Melanoma): 6 Kasus
+- Hasil Risiko Rendah (Jinak)   : 0 Kasus
+- Konsultasi Medis Selesai      : 1 Sesi
+- Rata-rata Akurasi/Confidence  : 85%
+-----------------------------------------
+*Dokumen ini digenerate secara otomatis oleh sistem MySkin.*

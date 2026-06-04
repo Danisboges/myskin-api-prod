@@ -24,6 +24,9 @@ router.get("/dashboard/role-distribution", verifyToken, isAdmin, adminController
 // GET /api/v1/admin/system/logs
 router.get("/system/logs", verifyToken, isAdmin, adminController.getSystemLogs);
 
+// POST /api/v1/admin/system/logs/cleanup
+router.post("/system/logs/cleanup", verifyToken, isAdmin, adminController.cleanupSystemLogs);
+
 
 
 // ==================== USER MANAGEMENT ROUTES ====================
@@ -97,14 +100,17 @@ router.get("/settings", verifyToken, isAdmin, adminController.getAdminSettings);
 // PATCH /api/v1/admin/settings/account
 router.patch("/settings/account", verifyToken, isAdmin, adminController.updateAdminSettingsAccount);
 
-// PATCH /api/v1/admin/settings/2fa
-router.patch("/settings/2fa", verifyToken, isAdmin, adminController.updateAdminSettings2FA);
-
 // PATCH /api/v1/admin/settings/notifications
 router.patch("/settings/notifications", verifyToken, isAdmin, adminController.updateAdminSettingsNotifications);
 
-// PATCH /api/v1/admin/settings/privacy
-router.patch("/settings/privacy", verifyToken, isAdmin, adminController.updateAdminSettingsPrivacy);
+// GET /api/v1/admin/settings/operations
+router.get("/settings/operations", verifyToken, isAdmin, adminController.getAdminSettingsOperations);
+
+// PATCH /api/v1/admin/settings/operations
+router.patch("/settings/operations", verifyToken, isAdmin, adminController.updateAdminSettingsOperations);
+
+// POST /api/v1/admin/settings/operations/audit-log-cleanup
+router.post("/settings/operations/audit-log-cleanup", verifyToken, isAdmin, adminController.cleanupExpiredAuditLogs);
 
 // PATCH /api/v1/admin/settings/preferences
 router.patch("/settings/preferences", verifyToken, isAdmin, adminController.updateAdminSettingsPreferences);

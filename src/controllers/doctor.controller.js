@@ -310,6 +310,80 @@ const getCaseHistory = async (req, res) => {
 };
 
 /**
+ * GET /api/v1/doctor/cases/history/download
+ */
+const downloadCaseHistoryPdf = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'User ID tidak ditemukan pada token'
+      });
+    }
+
+    const { search, diagnosis, status, startDate, endDate } = req.query;
+    const filters = {
+      search: normalizeOptionalString(search),
+      diagnosis: normalizeOptionalString(diagnosis),
+      status: normalizeOptionalString(status),
+      startDate: normalizeOptionalString(startDate),
+      endDate: normalizeOptionalString(endDate)
+    };
+
+    const result = await doctorService.generateDoctorCaseHistoryPdf(userId, filters);
+
+    res.setHeader('Content-Type', result.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
+    res.setHeader('Content-Length', result.buffer.length);
+    return res.status(200).send(result.buffer);
+  } catch (error) {
+    const statusCode = Number.isInteger(error.status) ? error.status : 500;
+    return res.status(statusCode).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * GET/POST /api/v1/doctor/cases/:caseId/report
+ */
+const generateCaseReportPdf = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { caseId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'User ID tidak ditemukan pada token'
+      });
+    }
+
+    if (!caseId) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'caseId is required'
+      });
+    }
+
+    const result = await doctorService.generateDoctorCaseReportPdf(userId, caseId);
+
+    res.setHeader('Content-Type', result.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
+    res.setHeader('Content-Length', result.buffer.length);
+    return res.status(200).send(result.buffer);
+  } catch (error) {
+    const statusCode = Number.isInteger(error.status) ? error.status : 500;
+    return res.status(statusCode).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};
+
+/**
  * GET /api/v1/doctor/patients/:patientId/evolution
  */
 const getPatientEvolution = async (req, res) => {
@@ -510,8 +584,8 @@ const updateAccountSettings = async (req, res) => {
       message: result.message
     });
   } catch (error) {
-    if (error.message === 'Current password is incorrect') {
-      return res.status(400).json({
+    if (error.status === 400 || error.status === 409) {
+      return res.status(error.status).json({
         status: 'error',
         message: error.message
       });
@@ -740,6 +814,8 @@ module.exports = {
 
   // Case History
   getCaseHistory,
+  downloadCaseHistoryPdf,
+  generateCaseReportPdf,
   getPatientEvolution,
 
   // Profile

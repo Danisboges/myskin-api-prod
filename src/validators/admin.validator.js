@@ -1,3 +1,10 @@
+const { validateEmailForForm } = require("../utils/email.util");
+const { getPasswordStrengthErrors } = require("../utils/password.util");
+
+const VALID_LOG_CATEGORIES = ["infrastructure", "ai_engine", "user_management", "security", "system"];
+const VALID_LOG_SEVERITIES = ["critical", "warning", "info"];
+const VALID_RETENTION_DAYS = [30, 90, 180, 365];
+
 // Validator untuk Admin User Management
 
 const validateCreateUser = (data) => {
@@ -7,8 +14,9 @@ const validateCreateUser = (data) => {
     errors.fullName = "Full name is required";
   }
 
-  if (!data.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
-    errors.email = "Valid email is required";
+  const emailError = validateEmailForForm(data.email);
+  if (emailError) {
+    errors.email = emailError;
   }
 
   if (!data.role || !["admin", "doctor", "patient"].includes(data.role)) {
@@ -19,8 +27,12 @@ const validateCreateUser = (data) => {
     errors.gender = "Gender must be male or female";
   }
 
-  if (!data.password || data.password.length < 6) {
-    errors.password = "Password must be at least 6 characters";
+  const passwordErrors = getPasswordStrengthErrors(data.password, {
+    email: data.email,
+    name: data.fullName,
+  });
+  if (passwordErrors.length > 0) {
+    errors.password = passwordErrors;
   }
 
   if (data.phoneNumber && !/^\+?[0-9\s\-\(\)]{7,}$/.test(data.phoneNumber)) {
@@ -41,8 +53,9 @@ const validateUpdateUser = (data) => {
     errors.fullName = "Full name cannot be empty";
   }
 
-  if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
-    errors.email = "Valid email is required";
+  const emailError = validateEmailForForm(data.email, { required: false });
+  if (emailError) {
+    errors.email = emailError;
   }
 
   if (data.role && !["admin", "doctor", "patient"].includes(data.role)) {
@@ -77,8 +90,9 @@ const validateUserRole = (role) => {
 const validateResetPassword = (data) => {
   const errors = {};
 
-  if (!data.newPassword || data.newPassword.length < 6) {
-    errors.newPassword = "New password must be at least 6 characters";
+  const passwordErrors = getPasswordStrengthErrors(data.newPassword);
+  if (passwordErrors.length > 0) {
+    errors.newPassword = passwordErrors;
   }
 
   return Object.keys(errors).length > 0 ? errors : null;
@@ -104,27 +118,71 @@ const validateDoctorRejection = (data) => {
   return Object.keys(errors).length > 0 ? errors : null;
 };
 
-const validateAdminSettings = (data) => {
+const validateAdminNotificationsSettings = (data) => {
   const errors = {};
+  const booleanFields = [
+    "emailNotifications",
+    "doctorApprovalAlerts",
+    "clinicRequestAlerts",
+    "systemAlerts",
+    "weeklyDigest",
+  ];
 
-  if (data.twoFactorEnabled !== undefined && typeof data.twoFactorEnabled !== "boolean") {
-    errors.twoFactorEnabled = "Must be boolean";
+  booleanFields.forEach((field) => {
+    if (data[field] !== undefined && typeof data[field] !== "boolean") {
+      errors[field] = "Must be boolean";
+    }
+  });
+
+  return Object.keys(errors).length > 0 ? errors : null;
+};
+
+const validateAdminOperationsSettings = (data) => {
+  const errors = {};
+  const allowedPageSizes = [8, 16, 24, 32];
+
+  if (data.defaultPageSize !== undefined && !allowedPageSizes.includes(Number(data.defaultPageSize))) {
+    errors.defaultPageSize = "defaultPageSize must be one of 8, 16, 24, or 32";
   }
 
-  if (data.emailNotifications !== undefined && typeof data.emailNotifications !== "boolean") {
-    errors.emailNotifications = "Must be boolean";
+  if (
+    data.auditLogRetentionDays !== undefined &&
+    !VALID_RETENTION_DAYS.includes(Number(data.auditLogRetentionDays))
+  ) {
+    errors.auditLogRetentionDays = "auditLogRetentionDays must be one of 30, 90, 180, or 365";
   }
 
-  if (data.verificationAlerts !== undefined && typeof data.verificationAlerts !== "boolean") {
-    errors.verificationAlerts = "Must be boolean";
+  if (data.maintenanceMode !== undefined && typeof data.maintenanceMode !== "boolean") {
+    errors.maintenanceMode = "Must be boolean";
   }
 
-  if (data.dataVisibility && !["restricted_clinical_team_only", "restricted_self_only", "shared_with_clinic"].includes(data.dataVisibility)) {
-    errors.dataVisibility = "Invalid data visibility";
+  if (
+    data.deleteConfirmationRequired !== undefined &&
+    typeof data.deleteConfirmationRequired !== "boolean"
+  ) {
+    errors.deleteConfirmationRequired = "Must be boolean";
   }
 
   return Object.keys(errors).length > 0 ? errors : null;
 };
+
+const validateAdminPreferencesSettings = (data) => {
+  const errors = {};
+  const allowedLanguages = ["English (US)", "Bahasa Indonesia"];
+  const allowedTimezones = ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura", "UTC"];
+
+  if (data.language !== undefined && !allowedLanguages.includes(data.language)) {
+    errors.language = "language must be English (US) or Bahasa Indonesia";
+  }
+
+  if (data.timezone !== undefined && !allowedTimezones.includes(data.timezone)) {
+    errors.timezone = "timezone must be Asia/Jakarta, Asia/Makassar, Asia/Jayapura, or UTC";
+  }
+
+  return Object.keys(errors).length > 0 ? errors : null;
+};
+
+const validateAdminSettings = validateAdminNotificationsSettings;
 
 const validateReportGeneration = (data) => {
   const errors = {};
@@ -166,6 +224,31 @@ const validatePaginationParams = (page, limit) => {
   return Object.keys(errors).length > 0 ? errors : null;
 };
 
+const validateSystemLogFilters = ({ type, severity } = {}) => {
+  const errors = {};
+
+  if (type !== undefined && type !== null && type !== "" && !VALID_LOG_CATEGORIES.includes(type)) {
+    errors.type = "type must be one of infrastructure, ai_engine, user_management, security, or system";
+  }
+
+  if (
+    severity !== undefined &&
+    severity !== null &&
+    severity !== "" &&
+    !VALID_LOG_SEVERITIES.includes(severity)
+  ) {
+    errors.severity = "severity must be one of critical, warning, or info";
+  }
+
+  return Object.keys(errors).length > 0 ? errors : null;
+};
+
+const validateLogRetentionDays = (retentionDays) => (
+  VALID_RETENTION_DAYS.includes(Number(retentionDays))
+    ? null
+    : { retentionDays: "retentionDays harus bernilai 30, 90, 180, atau 365" }
+);
+
 module.exports = {
   validateCreateUser,
   validateUpdateUser,
@@ -175,6 +258,11 @@ module.exports = {
   validateDoctorApproval,
   validateDoctorRejection,
   validateAdminSettings,
+  validateAdminNotificationsSettings,
+  validateAdminOperationsSettings,
+  validateAdminPreferencesSettings,
   validateReportGeneration,
   validatePaginationParams,
+  validateSystemLogFilters,
+  validateLogRetentionDays,
 };

@@ -80,7 +80,43 @@ const validateSendMessage = (data, options = {}) => {
  * Validate close consultation request
  */
 const validateCloseConsultation = (data) => {
-  const { diagnosis = '', recommendation = '', notes = '' } = data;
+  const {
+    diagnosis = '',
+    recommendation = '',
+    notes = '',
+    caseDisposition,
+    finalClinicalNotes,
+    emailClinicalSummary = false
+  } = data;
+  const allowedCaseDispositions = [
+    'case_resolved',
+    'referred_to_specialist',
+    'biopsy_scheduled'
+  ];
+
+  if (!caseDisposition || typeof caseDisposition !== 'string') {
+    throw new Error('caseDisposition is required and must be a string');
+  }
+
+  if (!allowedCaseDispositions.includes(caseDisposition.trim())) {
+    throw new Error('caseDisposition must be one of case_resolved, referred_to_specialist, or biopsy_scheduled');
+  }
+
+  if (!finalClinicalNotes || typeof finalClinicalNotes !== 'string') {
+    throw new Error('finalClinicalNotes is required and must be a string');
+  }
+
+  if (finalClinicalNotes.trim().length === 0) {
+    throw new Error('finalClinicalNotes cannot be empty');
+  }
+
+  if (finalClinicalNotes.length > 1000) {
+    throw new Error('finalClinicalNotes cannot exceed 1000 characters');
+  }
+
+  if (typeof emailClinicalSummary !== 'boolean') {
+    throw new Error('emailClinicalSummary must be a boolean');
+  }
 
   // Diagnosis is optional but if provided, validate it
   if (diagnosis && typeof diagnosis !== 'string') {
@@ -112,7 +148,10 @@ const validateCloseConsultation = (data) => {
   return {
     diagnosis: diagnosis.trim(),
     recommendation: recommendation.trim(),
-    notes: notes.trim()
+    notes: notes.trim(),
+    caseDisposition: caseDisposition.trim(),
+    finalClinicalNotes: finalClinicalNotes.trim(),
+    emailClinicalSummary
   };
 };
 
