@@ -1,3 +1,4 @@
+const prisma = require('../config/prisma');
 const doctorService = require('../services/doctor.service');
 const fs = require('fs');
 const path = require('path');
@@ -118,6 +119,18 @@ const saveObservation = async (req, res) => {
       });
     }
 
+    // Check if case exists
+    const caseReview = await prisma.caseReview.findUnique({
+      where: { caseId }
+    });
+
+    if (!caseReview) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Case not found'
+      });
+    }
+
     const result = await doctorService.saveObservation(caseId, userId, physicianObservation);
 
     res.status(201).json({
@@ -167,6 +180,32 @@ const approveCase = async (req, res) => {
       return res.status(400).json({
         status: 'error',
         message: 'finalDiagnosis is required'
+      });
+    }
+
+    // Check if case is already approved or rejected (prevent double approval)
+    const caseReview = await prisma.caseReview.findUnique({
+      where: { caseId }
+    });
+
+    if (!caseReview) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Case not found'
+      });
+    }
+
+    if (caseReview.reviewStatus === 'approved') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Case sudah pernah di-approve, tidak bisa approve lagi'
+      });
+    }
+
+    if (caseReview.reviewStatus === 'rejected') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Case sudah di-reject sebelumnya, tidak bisa approve'
       });
     }
 
@@ -227,6 +266,32 @@ const rejectCase = async (req, res) => {
       return res.status(400).json({
         status: 'error',
         message: 'finalDiagnosis is required'
+      });
+    }
+
+    // Check if case is already approved or rejected (prevent double rejection)
+    const caseReview = await prisma.caseReview.findUnique({
+      where: { caseId }
+    });
+
+    if (!caseReview) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Case not found'
+      });
+    }
+
+    if (caseReview.reviewStatus === 'approved') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Case sudah di-approve sebelumnya, tidak bisa reject'
+      });
+    }
+
+    if (caseReview.reviewStatus === 'rejected') {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Case sudah pernah di-reject, tidak bisa reject lagi'
       });
     }
 

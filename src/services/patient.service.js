@@ -608,7 +608,7 @@ const getPatientReports = async (userId, pagination, filters = {}) => {
   }
 
   // Build filter
-  const where = { patientId: userId };
+  const where = { patientId: patient.id };
   if (filters.status) {
     where.status = filters.status;
   }
@@ -672,7 +672,7 @@ const getReportDetail = async (userId, reportId) => {
     }
   });
 
-  if (!report || report.patientId !== patient.userId) {
+  if (!report || report.patientId !== patient.id) {
     throw new Error('Report not found or unauthorized');
   }
 
@@ -692,7 +692,7 @@ const exportReportPDF = async (userId, reportId) => {
     where: { reportId }
   });
 
-  if (!report || report.patientId !== patient.userId) {
+  if (!report || report.patientId !== patient.id) {
     throw new Error('Report not found or unauthorized');
   }
 
