@@ -346,7 +346,8 @@ const downloadCaseHistoryPdf = async (req, res) => {
         rejectedCases: result.rejectedCases,
         fileSize: result.fileSize,
         generatedAt: new Date().toISOString()
-      }
+      },
+      ...(result.dbError && { dbError: result.dbError })
     });
   } catch (error) {
     const statusCode = Number.isInteger(error.status) ? error.status : 500;

@@ -215,6 +215,7 @@ model PatientProfile {
   verificationRequests VerificationRequest[]
   settings             PatientSettings?
   notifications        PatientNotification[]
+  reports              Report[]
 }
 
 model PatientSettings {
@@ -388,6 +389,7 @@ model Report {
   scanId             String
   scan               Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
   patientId          String
+  patient            PatientProfile @relation(fields: [patientId], references: [id], onDelete: Cascade)
   
   title              String
   description        String?  @db.Text

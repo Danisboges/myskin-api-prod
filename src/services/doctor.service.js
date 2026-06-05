@@ -987,65 +987,90 @@ const generateDoctorCaseHistoryPdf = async (userId, filters = {}) => {
 
     // ===== SAVE TO DATABASE =====
     // Create a report record in the database
+    let reportId = null;
+    let dbError = null;
+
     if (cases.length > 0) {
-      const firstCase = cases[0];
-      const filterDescription = [
-        filters.search ? `search=${filters.search}` : null,
-        filters.diagnosis ? `diagnosis=${filters.diagnosis}` : null,
-        filters.status ? `status=${filters.status}` : null,
-        filters.startDate ? `startDate=${filters.startDate}` : null,
-        filters.endDate ? `endDate=${filters.endDate}` : null
-      ].filter(Boolean).join(', ') || 'No filters';
-
-      const report = await prisma.report.create({
-        data: {
-          scanId: firstCase.scanId,
-          patientId: firstCase.scan.patientId,
-          title: `Doctor Case History Report - ${doctorProfile.user?.name || 'Unknown Doctor'}`,
-          description: `Case history report containing ${cases.length} reviewed cases. Filters applied: ${filterDescription}`,
-          diagnosis: `Batch Case History - ${cases.length} cases`,
-          recommendation: `Review complete for ${cases.length} cases. Approved: ${cases.filter(c => c.reviewStatus === 'approved').length}, Rejected: ${cases.filter(c => c.reviewStatus === 'rejected').length}`,
-          pdfUrl,
-          status: 'completed',
-          approvedByDoctorId: doctorProfile.id,
-          approvedAt: new Date()
+      try {
+        // Find first valid case with complete data
+        let validCase = null;
+        for (const caseItem of cases) {
+          if (caseItem.scanId && caseItem.scan?.patientId) {
+            validCase = caseItem;
+            break;
+          }
         }
-      });
 
-      return {
-        success: true,
-        message: 'Case history PDF generated and saved successfully',
-        reportId: report.reportId,
-        pdfUrl,
-        fileName,
-        casesIncluded: cases.length,
-        fileSize: buffer.length,
-        approvedCases: cases.filter(c => c.reviewStatus === 'approved').length,
-        rejectedCases: cases.filter(c => c.reviewStatus === 'rejected').length
-      };
-    } else {
-      // Even if no cases match, still return the file info
-      return {
-        success: true,
-        message: 'Case history PDF generated (no matching cases)',
-        pdfUrl,
-        fileName,
-        casesIncluded: 0,
-        fileSize: buffer.length,
-        approvedCases: 0,
-        rejectedCases: 0,
-        reportId: null
-      };
+        if (!validCase) {
+          throw new Error('No valid cases with scan data found');
+        }
+
+        const filterDescription = [
+          filters.search ? `search=${filters.search}` : null,
+          filters.diagnosis ? `diagnosis=${filters.diagnosis}` : null,
+          filters.status ? `status=${filters.status}` : null,
+          filters.startDate ? `startDate=${filters.startDate}` : null,
+          filters.endDate ? `endDate=${filters.endDate}` : null
+        ].filter(Boolean).join(', ') || 'No filters';
+
+        console.log('[doctor.service.generateDoctorCaseHistoryPdf] DB Insert Info', {
+          scanId: validCase.scanId,
+          patientId: validCase.scan?.patientId,
+          doctorId: doctorProfile.id,
+          caseCount: cases.length
+        });
+
+        const report = await prisma.report.create({
+          data: {
+            scanId: validCase.scanId,
+            patientId: validCase.scan.patientId,
+            title: `Doctor Case History Report - ${doctorProfile.user?.name || 'Unknown Doctor'}`,
+            description: `Case history report containing ${cases.length} reviewed cases. Filters applied: ${filterDescription}`,
+            diagnosis: `Batch Case History - ${cases.length} cases`,
+            recommendation: `Review complete for ${cases.length} cases. Approved: ${cases.filter(c => c.reviewStatus === 'approved').length}, Rejected: ${cases.filter(c => c.reviewStatus === 'rejected').length}`,
+            pdfUrl,
+            status: 'completed',
+            approvedByDoctorId: doctorProfile.id,
+            approvedAt: new Date()
+          }
+        });
+
+        reportId = report.reportId;
+        console.log('[doctor.service.generateDoctorCaseHistoryPdf] Report saved successfully', { reportId, pdfUrl });
+      } catch (dbErr) {
+        dbError = dbErr;
+        console.error('[doctor.service.generateDoctorCaseHistoryPdf] DB Error', {
+          message: dbErr.message,
+          code: dbErr.code,
+          stack: dbErr.stack
+        });
+      }
     }
+
+    return {
+      success: true,
+      message: reportId 
+        ? 'Case history PDF generated and saved successfully' 
+        : 'Case history PDF generated (database save failed)',
+      reportId,
+      pdfUrl,
+      fileName,
+      casesIncluded: cases.length,
+      fileSize: buffer.length,
+      approvedCases: cases.filter(c => c.reviewStatus === 'approved').length,
+      rejectedCases: cases.filter(c => c.reviewStatus === 'rejected').length,
+      dbError: dbError ? dbError.message : null
+    };
   } catch (error) {
     if (error.status) {
       throw error;
     }
 
-    console.error('[doctor.service.generateDoctorCaseHistoryPdf] Error', {
+    console.error('[doctor.service.generateDoctorCaseHistoryPdf] Outer Error', {
       userId,
       filters,
       message: error.message,
+      code: error.code,
       stack: error.stack
     });
 
