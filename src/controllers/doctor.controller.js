@@ -333,10 +333,21 @@ const downloadCaseHistoryPdf = async (req, res) => {
 
     const result = await doctorService.generateDoctorCaseHistoryPdf(userId, filters);
 
-    res.setHeader('Content-Type', result.contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
-    res.setHeader('Content-Length', result.buffer.length);
-    return res.status(200).send(result.buffer);
+    // Return JSON response with PDF URL and metadata
+    return res.status(200).json({
+      status: 'success',
+      message: result.message,
+      data: {
+        reportId: result.reportId,
+        pdfUrl: result.pdfUrl,
+        fileName: result.fileName,
+        casesIncluded: result.casesIncluded,
+        approvedCases: result.approvedCases,
+        rejectedCases: result.rejectedCases,
+        fileSize: result.fileSize,
+        generatedAt: new Date().toISOString()
+      }
+    });
   } catch (error) {
     const statusCode = Number.isInteger(error.status) ? error.status : 500;
     return res.status(statusCode).json({
