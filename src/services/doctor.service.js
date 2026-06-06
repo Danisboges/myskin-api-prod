@@ -2,6 +2,7 @@ const prisma = require('../config/prisma');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 const {
   validateAndNormalizeEmail,
   ensureEmailAvailable,
@@ -590,6 +591,122 @@ const drawParagraph = (doc, title, value) => {
   doc.moveDown(0.6);
 };
 
+const resolveImagePath = (imageUrl) => {
+  if (!imageUrl || typeof imageUrl !== 'string') {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(imageUrl)) {
+    return null;
+  }
+
+  const normalizedUrl = imageUrl.split(/[?#]/)[0].replace(/^\/+/, '');
+  if (normalizedUrl.startsWith('uploads/')) {
+    return path.join(__dirname, '../..', normalizedUrl);
+  }
+
+  if (path.isAbsolute(imageUrl)) {
+    return imageUrl;
+  }
+
+  return path.join(__dirname, '../..', normalizedUrl);
+};
+
+const loadPdfImageBuffer = async (imageUrl) => {
+  if (!imageUrl) {
+    return null;
+  }
+
+  try {
+    if (/^https?:\/\//i.test(imageUrl)) {
+      const response = await axios.get(imageUrl, {
+        responseType: 'arraybuffer',
+        timeout: 10000
+      });
+
+      return Buffer.from(response.data);
+    }
+
+    const localPath = resolveImagePath(imageUrl);
+    if (localPath && fs.existsSync(localPath)) {
+      return fs.readFileSync(localPath);
+    }
+  } catch (error) {
+    console.warn('[doctor.service.pdf] Failed to load image', {
+      imageUrl,
+      message: error.message
+    });
+  }
+
+  return null;
+};
+
+const buildScanImageSet = async (scan = {}) => ({
+  scanImage: await loadPdfImageBuffer(scan.imageUrl),
+  gradcamImage: await loadPdfImageBuffer(scan.gradcamUrl),
+  annotationImage: await loadPdfImageBuffer(scan.annotatedImageUrl)
+});
+
+const drawImagePanel = (doc, label, imageBuffer, sourceUrl, x, y, width, height) => {
+  doc.roundedRect(x, y, width, height, 4).strokeColor('#dbe3ef').lineWidth(1).stroke();
+  doc.fontSize(8).font('Helvetica-Bold').fillColor('#334155').text(label, x, y - 12, {
+    width,
+    align: 'center'
+  });
+
+  if (imageBuffer) {
+    try {
+      doc.image(imageBuffer, x + 6, y + 6, {
+        fit: [width - 12, height - 12],
+        align: 'center',
+        valign: 'center'
+      });
+      return;
+    } catch (error) {
+      console.warn('[doctor.service.pdf] Failed to render image panel', {
+        label,
+        sourceUrl,
+        message: error.message
+      });
+    }
+  }
+
+  doc.fontSize(8).font('Helvetica').fillColor('#64748b').text(
+    sourceUrl ? 'Image unavailable' : 'No image',
+    x + 8,
+    y + (height / 2) - 5,
+    {
+      width: width - 16,
+      align: 'center'
+    }
+  );
+};
+
+const drawCaseImageReport = (doc, scan, imageSet = {}) => {
+  ensureSpace(doc, 175);
+  doc.fontSize(10).font('Helvetica-Bold').fillColor('#334155').text('Image Report');
+  doc.moveDown(1.2);
+
+  const gap = 12;
+  const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const panelWidth = (availableWidth - (gap * 2)) / 3;
+  const panelHeight = 118;
+  const startX = doc.page.margins.left;
+  const startY = doc.y;
+
+  drawImagePanel(doc, 'Scan Image', imageSet.scanImage, scan.imageUrl, startX, startY, panelWidth, panelHeight);
+  drawImagePanel(doc, 'Grad-CAM', imageSet.gradcamImage, scan.gradcamUrl, startX + panelWidth + gap, startY, panelWidth, panelHeight);
+  drawImagePanel(doc, 'Annotation', imageSet.annotationImage, scan.annotatedImageUrl, startX + ((panelWidth + gap) * 2), startY, panelWidth, panelHeight);
+
+  doc.y = startY + panelHeight + 10;
+  doc.fontSize(8).font('Helvetica').fillColor('#64748b');
+  doc.text(`Scan: ${scan.imageUrl || '-'}`, startX, doc.y, { width: availableWidth });
+  doc.text(`Grad-CAM: ${scan.gradcamUrl || '-'}`, startX, doc.y, { width: availableWidth });
+  doc.text(`Annotation: ${scan.annotatedImageUrl || '-'}`, startX, doc.y, { width: availableWidth });
+  doc.moveDown(0.6);
+  doc.fillColor('#172033').strokeColor('#000000');
+};
+
 const buildCaseHistoryWhere = (doctorProfileId, filters = {}) => {
   const { search, diagnosis, status, startDate, endDate } = filters;
   const reviewStatus = normalizeReviewStatus(status);
@@ -839,7 +956,7 @@ const fetchDoctorCaseForReport = async (userId, caseId) => {
   return { doctorProfile, caseReview };
 };
 
-const renderCaseReportPdf = (doc, caseReview, doctorProfile) => {
+const renderCaseReportPdf = (doc, caseReview, doctorProfile, imageSet = {}) => {
   const patientUser = caseReview.scan?.patient?.user || {};
   const scan = caseReview.scan || {};
   const doctorUser = doctorProfile.user || caseReview.doctor?.user || {};
@@ -873,6 +990,7 @@ const renderCaseReportPdf = (doc, caseReview, doctorProfile) => {
   drawKeyValue(doc, 'Patient Notes', scan.notes || '-');
   drawKeyValue(doc, 'Image URL', scan.imageUrl || '-');
   drawKeyValue(doc, 'Uploaded At', formatDate(scan.uploadedAt || scan.createdAt));
+  drawCaseImageReport(doc, scan, imageSet);
 
   drawSectionTitle(doc, 'AI Analysis');
   drawKeyValue(doc, 'AI Prediction', scan.aiPrediction || '-');
@@ -922,7 +1040,9 @@ const renderCaseReportPdf = (doc, caseReview, doctorProfile) => {
 const generateDoctorCaseReportPdf = async (userId, caseId) => {
   try {
     const { doctorProfile, caseReview } = await fetchDoctorCaseForReport(userId, caseId);
-    const buffer = await createPdfBuffer((doc) => renderCaseReportPdf(doc, caseReview, doctorProfile));
+    const scan = caseReview.scan || {};
+    const imageSet = await buildScanImageSet(scan);
+    const buffer = await createPdfBuffer((doc) => renderCaseReportPdf(doc, caseReview, doctorProfile, imageSet));
 
     // ===== SAVE PDF TO FILE SYSTEM =====
     const reportsDir = path.join(__dirname, '../../uploads/reports');
@@ -1038,6 +1158,7 @@ const generateDoctorCaseHistoryPdf = async (userId, filters = {}) => {
       orderBy: { reviewedAt: 'desc' },
       take: 500
     });
+    const caseImages = await Promise.all(cases.map((caseReview) => buildScanImageSet(caseReview.scan || {})));
 
     const buffer = await createPdfBuffer((doc) => {
       drawHeader(
@@ -1080,7 +1201,7 @@ const generateDoctorCaseHistoryPdf = async (userId, filters = {}) => {
       cases.forEach((caseReview, index) => {
         const patientUser = caseReview.scan?.patient?.user || {};
         const scan = caseReview.scan || {};
-        ensureSpace(doc, 160);
+        ensureSpace(doc, 330);
         doc.fontSize(11).font('Helvetica-Bold').fillColor('#172033').text(`${index + 1}. ${caseReview.caseId}`);
         doc.moveDown(0.3);
         drawKeyValue(doc, 'Patient', `${patientUser.name || '-'} (${patientUser.gender || '-'}, ${calculateAge(patientUser.birthDate) || '-'} years)`);
@@ -1093,6 +1214,7 @@ const generateDoctorCaseHistoryPdf = async (userId, filters = {}) => {
         if (caseReview.rejectionReason) {
           drawParagraph(doc, 'Rejection Reason', caseReview.rejectionReason);
         }
+        drawCaseImageReport(doc, scan, caseImages[index]);
       });
     });
 
