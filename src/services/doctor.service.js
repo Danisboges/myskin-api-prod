@@ -155,10 +155,61 @@ const getAssignedCases = async (userId, filters = {}) => {
       receivedAt: c.receivedAt.toISOString(),
       status: c.reviewStatus,
       scanImageUrl: c.scan.imageUrl,
+      gradcamImageUrl: c.scan.gradcamUrl,
       avatarUrl: `/uploads/patients/${c.scan.patient.user.name.toLowerCase().replace(/\s+/g, '-')}.png`
     }));
   } catch (error) {
     throw new Error(`Failed to get assigned cases: ${error.message}`);
+  }
+};
+
+const saveCaseAnnotation = async (caseId, fileData) => {
+  try {
+    if (!fileData) {
+      throw new Error('File gambar anotasi (coretan) wajib disertakan');
+    }
+
+    // 1. Cari CaseReview berdasarkan caseId dan sertakan data Scan-nya
+    const caseReview = await prisma.caseReview.findUnique({
+      where: { caseId },
+      include: { scan: true } // Ambil data scan agar kita dapat ID-nya
+    });
+
+    if (!caseReview || !caseReview.scan) {
+      throw new Error('Case review atau data scan tidak ditemukan');
+    }
+
+    // 2. Simpan file gambar coretan ke folder fisik server
+    const filename = `annotation_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileData.originalname.split('.').pop()}`;
+    const uploadDir = path.join(__dirname, '../../uploads/annotations');
+    const filepath = path.join(uploadDir, filename);
+
+    // Buat folder jika belum ada
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    // Tulis data buffer ke file
+    fs.writeFileSync(filepath, fileData.buffer);
+
+    // 3. Path yang akan disimpan ke database
+    const annotatedImageUrl = `/uploads/annotations/${filename}`;
+
+    // 4. Update langsung tabel Scan
+    const updatedScan = await prisma.scan.update({
+      where: { id: caseReview.scan.id }, // Update berdasarkan ID scan yang terkait
+      data: { 
+        annotatedImageUrl: annotatedImageUrl 
+      }
+    });
+
+    return {
+      success: true,
+      message: 'Coretan dokter berhasil disimpan pada data Scan',
+      annotatedImageUrl: updatedScan.annotatedImageUrl
+    };
+  } catch (error) {
+    throw new Error(`Failed to save annotation: ${error.message}`);
   }
 };
 
@@ -202,6 +253,7 @@ const getCaseDetail = async (caseId) => {
       },
       clinicalImage: {
         imageUrl: caseReview.scan.imageUrl,
+        annotatedImageUrl: caseReview.scan.annotatedImageUrl,
         zoom: caseReview.zoom || '4.0x',
         light: caseReview.light || 'Polarized',
         bodySite: caseReview.scan.bodySite || 'unspecified',
@@ -210,7 +262,8 @@ const getCaseDetail = async (caseId) => {
       aiPrediction: {
         confidence: caseReview.scan.aiConfidence || 0,
         prediction: caseReview.scan.aiPrediction,
-        details: caseReview.scan.aiDetails
+        details: caseReview.scan.aiDetails,
+        gradcamUrl: caseReview.scan.gradcamUrl
       },
       patientNotes: caseReview.scan.notes || 'No notes provided',
       physicianObservation: caseReview.physicianObservation,
@@ -1655,5 +1708,8 @@ module.exports = {
   // Notifications
   getDoctorNotifications,
   markNotificationAsRead,
-  markAllNotificationsAsRead
+  markAllNotificationsAsRead,
+  saveCaseAnnotation,
+
+  
 };

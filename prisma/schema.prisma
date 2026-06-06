@@ -244,6 +244,7 @@ model Scan {
   patient            PatientProfile @relation(fields: [patientId], references: [id], onDelete: Cascade)
   
   imageUrl           String   // URL gambar dari Cloudinary/S3
+  annotatedImageUrl  String?
   complaint          String?  @db.Text // Keluhan awal pasien
   bodySite           String?  
   notes              String?  @db.Text
@@ -254,6 +255,7 @@ model Scan {
   aiConfidence       Float?   // Skor akurasi AI (0-1 atau persentase)
   aiDetails          String?  @db.Text // Metadata AI tambahan
   analyzeCompletedAt DateTime?
+  gradcamUrl         String?
   
   // Izin Sharing ke Dokter
   isSharedWithDoctor Boolean  @default(false)

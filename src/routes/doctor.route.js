@@ -18,6 +18,8 @@ router.get('/dashboard/summary', verifyToken, isDoctor, doctorController.getDash
  */
 router.get('/cases/assigned', verifyToken, isDoctor, doctorController.getAssignedCases);
 
+router.post('/cases/:caseId/annotation', verifyToken, isDoctor, uploadSingleFile('annotationImage'), doctorController.saveAnnotation);
+
 /**
  * GET /api/v1/doctor/cases/history/download
  * Download detailed case history as PDF

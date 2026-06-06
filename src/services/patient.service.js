@@ -172,7 +172,8 @@ const findScanByIdentifier = async (scanIdentifier, include) => {
 };
 
 const analyzeScan = async (userId, scanId) => {
-  const { predictUrl } = getAiModelConfig();
+  // 1. Ambil URL endpoint dari config (keduanya: predict & gradcam)
+  const { predictUrl, gradcamUrl } = getAiModelConfig();
 
   // 2. Cari Patient Profile
   const patient = await prisma.patientProfile.findUnique({
@@ -184,7 +185,7 @@ const analyzeScan = async (userId, scanId) => {
   }
 
   // 3. Cari Scan Record
-  const scan = await findScanByIdentifier(scanId);
+  const scan = await findScanByIdentifier(scanId); // Pastikan fungsi pembantu ini sudah kamu import
 
   if (!scan) {
     throw new Error('Scan not found');
@@ -200,66 +201,81 @@ const analyzeScan = async (userId, scanId) => {
   }
 
   try {
-    // 5. Siapkan file untuk dikirim ke AI
-    // Mengasumsikan struktur folder: melanoma-api/src/services/auth.service.js
-    // dan folder uploads ada di root: melanoma-api/uploads
     const absolutePath = path.join(__dirname, '../../', scan.imageUrl);
 
     if (!fs.existsSync(absolutePath)) {
       throw new Error(`File image tidak ditemukan: ${absolutePath}`);
     }
 
-    const form = new FormData();
-    form.append('file', fs.createReadStream(absolutePath));
+    // ========================================================
+    // TAHAP A: MINTA PREDIKSI TEKS DARI AI
+    // ========================================================
+    const predictForm = new FormData();
+    predictForm.append('file', fs.createReadStream(absolutePath));
 
-    // 6. Request ke Model AI
-    const aiResponse = await axios.post(predictUrl, form, {
-      headers: buildAiRequestHeaders(form.getHeaders()),
+    const aiResponse = await axios.post(predictUrl, predictForm, {
+      headers: buildAiRequestHeaders(predictForm.getHeaders()),
     });
 
     const aiResult = aiResponse.data;
 
-    // 7. Update status scan di database dengan hasil AI asli
+    // ========================================================
+    // TAHAP B: MINTA GAMBAR GRAD-CAM DARI AI
+    // ========================================================
+    let savedGradcamUrl = null;
+
+    if (gradcamUrl) {
+      try {
+        // PERHATIAN: Kita buat FormData BARU karena stream sebelumnya sudah habis dibaca
+        const gradcamForm = new FormData();
+        gradcamForm.append('file', fs.createReadStream(absolutePath));
+
+        // Asumsi: API AI mengembalikan file gambar langsung (arraybuffer)
+        const gradcamResponse = await axios.post(gradcamUrl, gradcamForm, {
+          headers: buildAiRequestHeaders(gradcamForm.getHeaders()),
+          responseType: 'arraybuffer' 
+        });
+
+        // Simpan gambar Grad-CAM ke dalam folder khusus (misal: uploads/gradcam)
+        const gradcamFileName = `gradcam_${Date.now()}_${scan.id}.jpg`;
+        const gradcamDir = path.join(__dirname, '../../uploads/gradcam');
+
+        // Buat foldernya otomatis jika belum ada
+        if (!fs.existsSync(gradcamDir)) {
+          fs.mkdirSync(gradcamDir, { recursive: true });
+        }
+
+        const gradcamSavePath = path.join(gradcamDir, gradcamFileName);
+        fs.writeFileSync(gradcamSavePath, gradcamResponse.data);
+
+        // Path ini yang akan disimpan ke Database
+        savedGradcamUrl = `/uploads/gradcam/${gradcamFileName}`;
+
+      } catch (gradcamError) {
+        // Jika gagal mendapatkan Grad-CAM, catat errornya tapi JANGAN batalkan proses prediksi utama
+        console.error("Gagal mendapatkan gambar Grad-CAM dari AI:", gradcamError.message);
+      }
+    }
+
+    // ========================================================
+    // TAHAP C: UPDATE DATABASE
+    // ========================================================
     const updatedScan = await prisma.scan.update({
       where: { id: scan.id },
       data: {
         isAnalyzed: true,
         analyzeCompletedAt: new Date(),
-        // Sesuaikan key JSON (prediction/confidence) dengan output API AI Anda
         aiPrediction: aiResult.prediction || aiResult.class,
         aiConfidence: parseFloat(aiResult.confidence || aiResult.score || 0),
-        aiDetails: JSON.stringify(aiResult) // Simpan full response untuk backup
+        aiDetails: JSON.stringify(aiResult),
+        gradcamUrl: savedGradcamUrl // <--- MASUKKAN KE KOLOM BARU DATABASE
       }
     });
 
-    // 8. Buat Notifikasi untuk Pasien
-    await prisma.patientNotification.create({
-      data: {
-        notificationId: `PN-${Date.now()}`,
-        patientId: patient.id,
-        title: 'Analisis Scan Selesai',
-        message: `Scan Anda telah dianalisis. Hasil Prediksi: ${updatedScan.aiPrediction}`,
-        type: 'scan_completed'
-      }
-    });
-
-    return {
-      scanId: updatedScan.scanId,
-      aiPrediction: updatedScan.aiPrediction,
-      aiConfidence: updatedScan.aiConfidence,
-      analyzeCompletedAt: updatedScan.analyzeCompletedAt,
-      message: 'Scan analyzed successfully by AI Model'
-    };
+    return updatedScan;
 
   } catch (error) {
-    console.error("AI Analysis Error:", error.message);
-    
-    // Berikan pesan error yang lebih spesifik jika API AI mati
-    const errorMessage = error.response 
-      ? `AI Service Error: ${JSON.stringify(error.response.data)}` 
-      : error.message;
-      
-    throw new Error(`Gagal melakukan analisis AI: ${errorMessage}`);
+    throw new Error(`Failed to analyze scan: ${error.message}`);
   }
 };
 

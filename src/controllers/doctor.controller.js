@@ -40,6 +40,38 @@ const getDashboardSummary = async (req, res) => {
   }
 };
 
+const saveAnnotation = async (req, res) => {
+  try {
+    // Ambil caseId dari URL parameter (contoh: /api/doctor/cases/CASE-123/annotation)
+    const { caseId } = req.params; 
+    
+    // req.file didapat dari middleware Multer
+    const fileData = req.file;
+
+    if (!fileData) {
+      return res.status(400).json({
+        status: "error",
+        message: "File gambar anotasi (coretan) wajib disertakan"
+      });
+    }
+
+    // Panggil fungsi service
+    const result = await doctorService.saveCaseAnnotation(caseId, fileData);
+
+    res.status(200).json({
+      status: "success",
+      message: result.message,
+      data: result.data
+    });
+  } catch (err) {
+    console.error("Error saveAnnotation:", err.message);
+    res.status(500).json({
+      status: "error",
+      message: err.message
+    });
+  }
+};
+
 /**
  * GET /api/v1/doctor/cases/assigned
  */
@@ -884,5 +916,6 @@ module.exports = {
   // Notifications
   getDoctorNotifications,
   markNotificationAsRead,
-  markAllNotificationsAsRead
+  markAllNotificationsAsRead,
+  saveAnnotation
 };
