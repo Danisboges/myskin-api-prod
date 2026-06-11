@@ -180,7 +180,7 @@ test("deleteUser hard deletes doctor with consultation and doctor-profile relati
   const report = await prisma.report.create({
     data: {
       scanId: scan.id,
-      patientId: patient.id,
+      patientId: patient.patientProfile.id,
       title: "Delete test report",
       diagnosis: "Benign",
       approvedByDoctorId: doctor.id,

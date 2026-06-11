@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const http = require("node:http");
+const path = require("node:path");
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret";
 process.env.ADMIN_NOTIFICATION_TEST_DISABLE = "true";
@@ -50,7 +52,39 @@ const request = async (app, { method, path, headers = {} }) => new Promise((reso
         server.close(() => {
           resolve({
             statusCode: res.statusCode,
+            headers: res.headers,
             body: rawBody ? JSON.parse(rawBody) : null,
+          });
+        });
+      });
+    });
+
+    req.on("error", (error) => {
+      server.close(() => reject(error));
+    });
+    req.end();
+  });
+});
+
+const requestRaw = async (app, { method, path, headers = {} }) => new Promise((resolve, reject) => {
+  const server = app.listen(0, () => {
+    const req = http.request({
+      hostname: "127.0.0.1",
+      port: server.address().port,
+      path,
+      method,
+      headers,
+    }, (res) => {
+      const chunks = [];
+      res.on("data", (chunk) => {
+        chunks.push(chunk);
+      });
+      res.on("end", () => {
+        server.close(() => {
+          resolve({
+            statusCode: res.statusCode,
+            headers: res.headers,
+            body: Buffer.concat(chunks),
           });
         });
       });
@@ -161,4 +195,39 @@ test("global 500 error handler creates critical system log", async () => {
 
   assert.ok(log);
   assert.equal(JSON.parse(log.metadata).status, 500);
+});
+
+test("uploaded images are served for canvas annotation with CORS headers", async () => {
+  const app = require("../server");
+  const uploadDir = path.join(__dirname, "..", "uploads");
+  const fileName = `static-test-${Date.now()}.png`;
+  const filePath = path.join(uploadDir, fileName);
+  fs.mkdirSync(uploadDir, { recursive: true });
+  fs.writeFileSync(filePath, Buffer.from([
+    0x89, 0x50, 0x4e, 0x47,
+    0x0d, 0x0a, 0x1a, 0x0a,
+  ]));
+
+  try {
+    for (const publicPath of [`/uploads/${fileName}`, `/api/uploads/${fileName}`]) {
+      const res = await requestRaw(app, {
+        method: "GET",
+        path: publicPath,
+        headers: {
+          Origin: "http://localhost:5173",
+          Authorization: "Bearer test-token",
+        },
+      });
+
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.headers["access-control-allow-origin"], "http://localhost:5173");
+      assert.equal(res.headers["cross-origin-resource-policy"], "cross-origin");
+      assert.match(res.headers["content-type"], /^image\/png/);
+      assert.equal(res.body.subarray(0, 4).toString("hex"), "89504e47");
+    }
+  } finally {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
 });

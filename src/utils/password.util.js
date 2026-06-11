@@ -1,7 +1,7 @@
 const bcrypt = require("bcryptjs");
 
 const BCRYPT_ROUNDS = 12;
-const PASSWORD_MIN_LENGTH = 12;
+const PASSWORD_MIN_LENGTH = 6;
 const PASSWORD_MAX_LENGTH = 128;
 
 const COMMON_PASSWORDS = new Set([

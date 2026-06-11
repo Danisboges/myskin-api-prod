@@ -201,3 +201,48 @@ test("login controller returns exact maintenance response", async () => {
     message: "System is under maintenance",
   });
 });
+
+test("login controller maps internal Prisma errors to credential errors", async () => {
+  authService.loginUser = async () => {
+    const error = new Error("Invalid `prisma.user.findUnique()` invocation");
+    error.name = "PrismaClientKnownRequestError";
+    throw error;
+  };
+
+  const res = createRes();
+  await authController.login({
+    body: {
+      email: "admin.demo@myskin.local",
+      password: "password123",
+    },
+  }, res);
+
+  assert.equal(res.statusCode, 401);
+  assert.deepEqual(res.body, {
+    status: "error",
+    message: "Invalid email or password",
+    error: "Invalid email or password",
+  });
+});
+
+test("loginUser validates email before querying Prisma", async () => {
+  await assert.rejects(
+    loginUser("bad-email", "password123"),
+    (error) => {
+      assert.equal(error.status, 400);
+      assert.equal(error.message, "Email harus memiliki tepat satu simbol @");
+      return true;
+    }
+  );
+});
+
+test("loginUser validates password before querying Prisma", async () => {
+  await assert.rejects(
+    loginUser("admin.demo@myskin.local", "   "),
+    (error) => {
+      assert.equal(error.status, 400);
+      assert.equal(error.message, "Password wajib diisi");
+      return true;
+    }
+  );
+});

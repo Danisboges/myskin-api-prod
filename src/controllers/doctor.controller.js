@@ -1,4 +1,3 @@
-const prisma = require('../config/prisma');
 const doctorService = require('../services/doctor.service');
 const fs = require('fs');
 const path = require('path');
@@ -67,6 +66,13 @@ const saveAnnotation = async (req, res) => {
     });
   } catch (err) {
     console.error("Error saveAnnotation:", err.message);
+    if (err.message.includes('not found') || err.message.includes('tidak ditemukan')) {
+      return res.status(404).json({
+        status: "error",
+        message: "Case not found"
+      });
+    }
+
     res.status(500).json({
       status: "error",
       message: err.message
@@ -115,10 +121,10 @@ const getCaseDetail = async (req, res) => {
       data: caseDetail
     });
   } catch (error) {
-    if (error.message === 'Case not found') {
+    if (error.message.includes('Case not found')) {
       return res.status(404).json({
         status: 'error',
-        message: error.message
+        message: 'Case not found'
       });
     }
 
@@ -153,18 +159,6 @@ const saveObservation = async (req, res) => {
       });
     }
 
-    // Check if case exists
-    const caseReview = await prisma.caseReview.findUnique({
-      where: { caseId }
-    });
-
-    if (!caseReview) {
-      return res.status(404).json({
-        status: 'error',
-        message: 'Case not found'
-      });
-    }
-
     const result = await doctorService.saveObservation(caseId, userId, physicianObservation);
 
     res.status(201).json({
@@ -175,7 +169,7 @@ const saveObservation = async (req, res) => {
     if (error.message.includes('not found')) {
       return res.status(404).json({
         status: 'error',
-        message: error.message
+        message: 'Case not found'
       });
     }
 
@@ -217,44 +211,29 @@ const approveCase = async (req, res) => {
       });
     }
 
-    // Check if case is already approved or rejected (prevent double approval)
-    const caseReview = await prisma.caseReview.findUnique({
-      where: { caseId }
-    });
+    const result = await doctorService.approveCase(caseId, userId, physicianObservation, finalDiagnosis);
 
-    if (!caseReview) {
+    res.status(200).json({
+      status: 'success',
+      message: result.message,
+      data: {
+        caseId: result.caseId,
+        scanId: result.scanId,
+        requestId: result.requestId
+      }
+    });
+  } catch (error) {
+    if (error.message.includes('not found')) {
       return res.status(404).json({
         status: 'error',
         message: 'Case not found'
       });
     }
 
-    if (caseReview.reviewStatus === 'approved') {
+    if (error.message.includes('sudah')) {
       return res.status(400).json({
         status: 'error',
-        message: 'Case sudah pernah di-approve, tidak bisa approve lagi'
-      });
-    }
-
-    if (caseReview.reviewStatus === 'rejected') {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Case sudah di-reject sebelumnya, tidak bisa approve'
-      });
-    }
-
-    const result = await doctorService.approveCase(caseId, userId, physicianObservation, finalDiagnosis);
-
-    res.status(200).json({
-      status: 'success',
-      message: result.message,
-      data: { caseId: result.caseId }
-    });
-  } catch (error) {
-    if (error.message.includes('not found')) {
-      return res.status(404).json({
-        status: 'error',
-        message: error.message
+        message: error.message.replace(/^Failed to approve case: /, '')
       });
     }
 
@@ -303,44 +282,29 @@ const rejectCase = async (req, res) => {
       });
     }
 
-    // Check if case is already approved or rejected (prevent double rejection)
-    const caseReview = await prisma.caseReview.findUnique({
-      where: { caseId }
-    });
+    const result = await doctorService.rejectCase(caseId, userId, reason, physicianObservation, finalDiagnosis);
 
-    if (!caseReview) {
+    res.status(200).json({
+      status: 'success',
+      message: result.message,
+      data: {
+        caseId: result.caseId,
+        scanId: result.scanId,
+        requestId: result.requestId
+      }
+    });
+  } catch (error) {
+    if (error.message.includes('not found')) {
       return res.status(404).json({
         status: 'error',
         message: 'Case not found'
       });
     }
 
-    if (caseReview.reviewStatus === 'approved') {
+    if (error.message.includes('sudah')) {
       return res.status(400).json({
         status: 'error',
-        message: 'Case sudah di-approve sebelumnya, tidak bisa reject'
-      });
-    }
-
-    if (caseReview.reviewStatus === 'rejected') {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Case sudah pernah di-reject, tidak bisa reject lagi'
-      });
-    }
-
-    const result = await doctorService.rejectCase(caseId, userId, reason, physicianObservation, finalDiagnosis);
-
-    res.status(200).json({
-      status: 'success',
-      message: result.message,
-      data: { caseId: result.caseId }
-    });
-  } catch (error) {
-    if (error.message.includes('not found')) {
-      return res.status(404).json({
-        status: 'error',
-        message: error.message
+        message: error.message.replace(/^Failed to reject case: /, '')
       });
     }
 

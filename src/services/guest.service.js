@@ -35,7 +35,8 @@ const cleanupExpiredCache = () => {
 /**
  * Setup periodic cleanup setiap 1 jam
  */
-setInterval(cleanupExpiredCache, 60 * 60 * 1000);
+const cleanupInterval = setInterval(cleanupExpiredCache, 60 * 60 * 1000);
+cleanupInterval.unref?.();
 
 // ==================== GUEST IMAGE ANALYSIS ====================
 

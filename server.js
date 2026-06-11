@@ -55,13 +55,20 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir);
 }
 
+const uploadStaticOptions = {
+  setHeaders(res) {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  },
+};
+
 // 2. MIDDLEWARE UTAMA (Body Parser diletakkan paling atas dengan limit 10MB)
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // 3. STATIC FILES
-app.use('/uploads', express.static(uploadDir));
+app.use('/uploads', express.static(uploadDir, uploadStaticOptions));
+app.use('/api/uploads', express.static(uploadDir, uploadStaticOptions));
 app.use('/admin', express.static(adminUiDir));
 
 // 4. CUSTOM LOGGER MIDDLEWARE
@@ -77,9 +84,6 @@ app.use((req, res, next) => {
 });
 
 app.use(maintenanceModeMiddleware);
-
-// 5. Report uploads 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // 5. ROUTES
 app.use('/api/auth', userRoutes);

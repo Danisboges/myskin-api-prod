@@ -1,5 +1,10 @@
 const authService = require('../services/auth.service');
 
+const isPrismaInternalError = (err) => (
+  err?.name?.startsWith("PrismaClient") ||
+  err?.message?.includes("Invalid `prisma.")
+);
+
 const register = async (req, res) => {
   try {
     console.log("Mencoba Register:", req.body.email);
@@ -27,6 +32,14 @@ const login = async (req, res) => {
     const statusCode = err.status || 401;
     if (err.code === "MAINTENANCE_MODE" && err.response) {
       return res.status(statusCode).json(err.response);
+    }
+
+    if (isPrismaInternalError(err)) {
+      return res.status(401).json({
+        status: "error",
+        message: "Invalid email or password",
+        error: "Invalid email or password",
+      });
     }
 
     res.status(statusCode).json({

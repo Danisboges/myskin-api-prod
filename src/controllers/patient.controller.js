@@ -69,6 +69,12 @@ const analyzeScan = async (req, res) => {
     });
   } catch (err) {
     console.error("Error analyzeScan:", err.message);
+    if (err.status) {
+      return res.status(err.status).json({
+        status: "error",
+        message: err.message
+      });
+    }
     if (err.message.includes('not found')) {
       return res.status(404).json({
         status: "error",
@@ -599,8 +605,7 @@ const getAvailableDoctors = async (req, res) => {
 
 const submitVerificationRequest = async (req, res) => {
   try {
-    const { message } = req.body;
-    const result = await patientService.submitVerificationRequest(req.user.id, message);
+    const result = await patientService.submitVerificationRequest(req.user.id, req.body);
     
     res.status(201).json({
       status: "success",
@@ -608,7 +613,7 @@ const submitVerificationRequest = async (req, res) => {
     });
   } catch (err) {
     console.error("Error submitVerificationRequest:", err.message);
-    res.status(400).json({
+    res.status(err.status || 400).json({
       status: "error",
       message: err.message
     });

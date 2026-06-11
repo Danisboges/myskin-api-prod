@@ -41,7 +41,7 @@ function runMiddleware(middleware, req) {
 
 test('validateScanUpload accepts valid scan upload', () => {
   const { nextCalled, res } = runMiddleware(validateScanUpload, {
-    body: { complaint: 'New mole on arm', bodySite: 'arm' },
+    body: { complaint: 'New mole on left arm', bodySite: 'arm' },
     file: { mimetype: 'image/jpeg', size: 1024 },
   });
 
@@ -58,10 +58,10 @@ test('validateScanUpload rejects missing file and short complaint', () => {
   assert.equal(result.res.body.message, 'Image file is required');
 
   result = runMiddleware(validateScanUpload, {
-    body: { complaint: 'bad' },
+    body: { complaint: 'bad     mole' },
     file: { mimetype: 'image/png', size: 1024 },
   });
-  assert.equal(result.res.body.message, 'Complaint must be at least 5 characters');
+  assert.equal(result.res.body.message, 'Complaint must be at least 10 characters');
 });
 
 test('scan route validators reject missing ids', () => {
@@ -91,8 +91,12 @@ test('settings and request validators reject invalid payloads', () => {
   }).res.body.message, 'language must be English (US) or Bahasa Indonesia');
 
   assert.equal(runMiddleware(validateVerificationRequest, {
-    body: { message: 'too short' },
-  }).res.body.message, 'Message must be at least 10 characters');
+    body: { message: 'bad' },
+  }).res.body.message, 'Message must be at least 5 characters');
+
+  const initialMessageReq = { body: { initialMessage: 'Valid initial message' } };
+  assert.equal(runMiddleware(validateVerificationRequest, initialMessageReq).nextCalled, true);
+  assert.equal(initialMessageReq.body.message, 'Valid initial message');
 
   assert.equal(runMiddleware(validateNotificationRead, {
     params: { notificationId: '' },

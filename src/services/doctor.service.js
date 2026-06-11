@@ -41,7 +41,22 @@ const getDashboardSummary = async (userId) => {
       where: { doctorId },
       include: {
         scan: {
-          select: { aiConfidence: true }
+          select: {
+            scanId: true,
+            imageUrl: true,
+            gradcamUrl: true,
+            annotatedImageUrl: true,
+            aiConfidence: true,
+            patient: {
+              include: {
+                user: {
+                  select: {
+                    name: true,
+                  },
+                },
+              },
+            },
+          }
         }
       }
     });
@@ -95,7 +110,21 @@ const getDashboardSummary = async (userId) => {
       pendingReview,
       completedScans,
       accuracy,
-      growthPercentage
+      growthPercentage,
+      latestAnnotatedCases: caseReviews
+        .filter((caseReview) => caseReview.scan?.annotatedImageUrl)
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+        .slice(0, 5)
+        .map((caseReview) => ({
+          caseId: caseReview.caseId,
+          scanId: caseReview.scan.scanId,
+          patientName: caseReview.scan.patient?.user?.name || null,
+          scanImageUrl: caseReview.scan.imageUrl,
+          gradcamImageUrl: caseReview.scan.gradcamUrl,
+          annotatedImageUrl: caseReview.scan.annotatedImageUrl,
+          annotationImageUrl: caseReview.scan.annotatedImageUrl,
+          editedGradcamImageUrl: caseReview.scan.annotatedImageUrl,
+        }))
     };
   } catch (error) {
     throw new Error(`Failed to get dashboard summary: ${error.message}`);
@@ -104,6 +133,9 @@ const getDashboardSummary = async (userId) => {
 /**
  * Get assigned cases for a doctor
  */
+const ACTIVE_VERIFICATION_REQUEST_STATUSES = ['pending', 'pending_review', 'submitted'];
+const getPatientAvatarUrl = (user) => user?.avatarUrl || null;
+
 const getAssignedCases = async (userId, filters = {}) => {
   try {
     // Get doctor profile from userId
@@ -124,41 +156,113 @@ const getAssignedCases = async (userId, filters = {}) => {
 
     const caseIds = assignments.map(a => a.caseId);
 
-    const cases = await prisma.caseReview.findMany({
-      where: {
-        caseId: { in: caseIds },
-        reviewStatus: 'pending_review'
-      },
-      include: {
-        scan: {
-          include: {
-            patient: {
-              include: {
-                user: {
-                  select: { name: true, gender: true, birthDate: true }
+    const [cases, verificationRequests] = await Promise.all([
+      prisma.caseReview.findMany({
+        where: {
+          caseId: { in: caseIds },
+          reviewStatus: 'pending_review'
+        },
+        include: {
+          scan: {
+            include: {
+              patient: {
+                include: {
+                  user: {
+                    select: { name: true, gender: true, birthDate: true, avatarUrl: true }
+                  }
                 }
               }
             }
           }
-        }
-      },
-      orderBy: { receivedAt: 'desc' }
-    });
+        },
+        orderBy: { receivedAt: 'desc' }
+      }),
+      prisma.verificationRequest.findMany({
+        where: {
+          assignedDoctorId: doctorProfile.id,
+          status: { in: ACTIVE_VERIFICATION_REQUEST_STATUSES },
+        },
+        include: {
+          patient: {
+            include: {
+              user: {
+                select: { name: true, gender: true, birthDate: true, avatarUrl: true },
+              },
+              scans: {
+                orderBy: { uploadedAt: 'desc' },
+                take: 1,
+                select: {
+                  scanId: true,
+                  imageUrl: true,
+                  gradcamUrl: true,
+                  annotatedImageUrl: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { submittedAt: 'desc' },
+      }),
+    ]);
 
     // Map to expected format
-    return cases.map(c => ({
+    const assignedCases = cases.map(c => ({
+      id: c.id,
+      requestId: null,
       caseId: c.caseId,
+      scanId: c.scan.scanId,
+      actionCaseId: c.caseId,
+      detailCaseId: c.caseId,
       patientName: c.scan.patient.user.name,
       patientAge: c.scan.patient.user.birthDate 
         ? new Date().getFullYear() - new Date(c.scan.patient.user.birthDate).getFullYear()
         : null,
       patientGender: c.scan.patient.user.gender,
+      createdAt: c.createdAt.toISOString(),
       receivedAt: c.receivedAt.toISOString(),
       status: c.reviewStatus,
+      type: 'case_review',
       scanImageUrl: c.scan.imageUrl,
       gradcamImageUrl: c.scan.gradcamUrl,
-      avatarUrl: `/uploads/patients/${c.scan.patient.user.name.toLowerCase().replace(/\s+/g, '-')}.png`
+      annotatedImageUrl: c.scan.annotatedImageUrl,
+      annotationImageUrl: c.scan.annotatedImageUrl,
+      editedGradcamImageUrl: c.scan.annotatedImageUrl,
+      avatarUrl: getPatientAvatarUrl(c.scan.patient.user)
     }));
+
+    const verificationRequestCases = verificationRequests.map((request) => {
+      const latestScan = request.patient.scans[0] || null;
+      const receivedAt = request.submittedAt || request.createdAt;
+      const detailCaseId = request.scanId || latestScan?.scanId || request.requestId;
+
+      return {
+        id: request.id,
+        requestId: request.requestId,
+        caseId: detailCaseId,
+        scanId: request.scanId || latestScan?.scanId || null,
+        detailCaseId,
+        actionCaseId: detailCaseId,
+        patientName: request.patient.user.name,
+        patientAge: request.patient.user.birthDate
+          ? new Date().getFullYear() - new Date(request.patient.user.birthDate).getFullYear()
+          : null,
+        patientGender: request.patient.user.gender,
+        createdAt: request.createdAt.toISOString(),
+        receivedAt: receivedAt.toISOString(),
+        status: request.status,
+        type: 'verification_request',
+        scanImageUrl: latestScan?.imageUrl || null,
+        gradcamImageUrl: latestScan?.gradcamUrl || null,
+        annotatedImageUrl: latestScan?.annotatedImageUrl || null,
+        annotationImageUrl: latestScan?.annotatedImageUrl || null,
+        editedGradcamImageUrl: latestScan?.annotatedImageUrl || null,
+        avatarUrl: getPatientAvatarUrl(request.patient.user),
+      };
+    });
+
+    return [...assignedCases, ...verificationRequestCases].sort(
+      (a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
+    );
   } catch (error) {
     throw new Error(`Failed to get assigned cases: ${error.message}`);
   }
@@ -170,13 +274,9 @@ const saveCaseAnnotation = async (caseId, fileData) => {
       throw new Error('File gambar anotasi (coretan) wajib disertakan');
     }
 
-    // 1. Cari CaseReview berdasarkan caseId dan sertakan data Scan-nya
-    const caseReview = await prisma.caseReview.findUnique({
-      where: { caseId },
-      include: { scan: true } // Ambil data scan agar kita dapat ID-nya
-    });
+    const target = await resolveDoctorCaseIdentifier(caseId);
 
-    if (!caseReview || !caseReview.scan) {
+    if (!target?.scan) {
       throw new Error('Case review atau data scan tidak ditemukan');
     }
 
@@ -198,7 +298,7 @@ const saveCaseAnnotation = async (caseId, fileData) => {
 
     // 4. Update langsung tabel Scan
     const updatedScan = await prisma.scan.update({
-      where: { id: caseReview.scan.id }, // Update berdasarkan ID scan yang terkait
+      where: { id: target.scan.id },
       data: { 
         annotatedImageUrl: annotatedImageUrl 
       }
@@ -217,60 +317,245 @@ const saveCaseAnnotation = async (caseId, fileData) => {
 /**
  * Get case details
  */
-const getCaseDetail = async (caseId) => {
-  try {
-    const caseReview = await prisma.caseReview.findUnique({
-      where: { caseId },
+const calculatePatientAge = (birthDate) => (
+  birthDate ? new Date().getFullYear() - new Date(birthDate).getFullYear() : null
+);
+
+const formatCaseDetail = ({ caseId, requestId = null, scan, status, receivedAt, physicianObservation = null }) => ({
+  caseId,
+  requestId,
+  scanId: scan.scanId,
+  patient: {
+    id: scan.patientId,
+    name: scan.patient.user.name,
+    age: calculatePatientAge(scan.patient.user.birthDate),
+    gender: scan.patient.user.gender
+  },
+  clinicalImage: {
+    imageUrl: scan.imageUrl,
+    annotatedImageUrl: scan.annotatedImageUrl,
+    zoom: scan.caseReview?.zoom || '4.0x',
+    light: scan.caseReview?.light || 'Polarized',
+    bodySite: scan.bodySite || 'unspecified',
+    complaint: scan.complaint
+  },
+  aiPrediction: {
+    confidence: scan.aiConfidence || 0,
+    prediction: scan.aiPrediction,
+    details: scan.aiDetails,
+    gradcamUrl: scan.gradcamUrl
+  },
+  patientNotes: scan.notes || 'No notes provided',
+  physicianObservation,
+  status,
+  receivedAt: receivedAt.toISOString()
+});
+
+const getScanDetailByIdentifier = async (scanIdentifier) => prisma.scan.findFirst({
+  where: {
+    OR: [
+      { id: scanIdentifier },
+      { scanId: scanIdentifier },
+    ],
+  },
+  include: {
+    patient: {
       include: {
-        scan: {
+        user: { select: { name: true, gender: true, birthDate: true, avatarUrl: true } }
+      }
+    },
+    caseReview: true,
+  },
+});
+
+const getCaseReviewWithScan = async (caseId) => prisma.caseReview.findUnique({
+  where: { caseId },
+  include: {
+    scan: {
+      include: {
+        patient: {
           include: {
-            patient: {
-              include: {
-                user: { select: { name: true, gender: true, birthDate: true } }
-              }
-            }
+            user: { select: { name: true, gender: true, birthDate: true, avatarUrl: true } }
           }
         }
       }
-    });
+    },
+    doctor: {
+      include: {
+        user: { select: { name: true } }
+      }
+    }
+  }
+});
 
-    if (!caseReview) {
+const getVerificationRequestWithScan = async (requestId) => prisma.verificationRequest.findUnique({
+  where: { requestId },
+  include: {
+    patient: {
+      include: {
+        user: { select: { name: true, gender: true, birthDate: true, avatarUrl: true } },
+        scans: {
+          orderBy: { uploadedAt: 'desc' },
+          take: 1,
+          include: {
+            caseReview: true,
+          },
+        },
+      },
+    },
+  },
+});
+
+const resolveDoctorCaseIdentifier = async (identifier) => {
+  if (!identifier || typeof identifier !== 'string' || identifier.trim().length === 0) {
+    throw new Error('Case not found');
+  }
+
+  const normalizedIdentifier = identifier.trim();
+  const caseReview = await getCaseReviewWithScan(normalizedIdentifier);
+  if (caseReview) {
+    return {
+      caseReview,
+      scan: {
+        ...caseReview.scan,
+        caseReview,
+      },
+      verificationRequest: null,
+      detailCaseId: caseReview.caseId,
+    };
+  }
+
+  const verificationRequest = await getVerificationRequestWithScan(normalizedIdentifier);
+  if (verificationRequest) {
+    let scan = null;
+    if (verificationRequest.scanId) {
+      scan = await getScanDetailByIdentifier(verificationRequest.scanId);
+    }
+
+    if (!scan) {
+      scan = verificationRequest.patient.scans[0] || null;
+    }
+
+    if (!scan) {
       throw new Error('Case not found');
     }
 
-    // Get patient age from birthDate
-    const patientBirthDate = caseReview.scan.patient.user.birthDate;
-    const patientAge = patientBirthDate 
-      ? new Date().getFullYear() - new Date(patientBirthDate).getFullYear()
-      : null;
+    scan.patient = verificationRequest.patient;
 
     return {
-      caseId: caseReview.caseId,
-      patient: {
-        id: caseReview.scan.patientId,
-        name: caseReview.scan.patient.user.name,
-        age: patientAge,
-        gender: caseReview.scan.patient.user.gender
-      },
-      clinicalImage: {
-        imageUrl: caseReview.scan.imageUrl,
-        annotatedImageUrl: caseReview.scan.annotatedImageUrl,
-        zoom: caseReview.zoom || '4.0x',
-        light: caseReview.light || 'Polarized',
-        bodySite: caseReview.scan.bodySite || 'unspecified',
-        complaint: caseReview.scan.complaint
-      },
-      aiPrediction: {
-        confidence: caseReview.scan.aiConfidence || 0,
-        prediction: caseReview.scan.aiPrediction,
-        details: caseReview.scan.aiDetails,
-        gradcamUrl: caseReview.scan.gradcamUrl
-      },
-      patientNotes: caseReview.scan.notes || 'No notes provided',
-      physicianObservation: caseReview.physicianObservation,
-      status: caseReview.reviewStatus,
-      receivedAt: caseReview.receivedAt.toISOString()
+      caseReview: scan.caseReview || null,
+      scan,
+      verificationRequest,
+      detailCaseId: scan.caseReview?.caseId || scan.scanId,
     };
+  }
+
+  const scan = await getScanDetailByIdentifier(normalizedIdentifier);
+  if (scan) {
+    const request = await prisma.verificationRequest.findFirst({
+      where: { scanId: scan.scanId },
+      orderBy: { submittedAt: 'desc' },
+    });
+
+    return {
+      caseReview: scan.caseReview || null,
+      scan,
+      verificationRequest: request,
+      detailCaseId: scan.caseReview?.caseId || scan.scanId,
+    };
+  }
+
+  throw new Error('Case not found');
+};
+
+const getDoctorProfileForAction = async (doctorUserId) => {
+  const doctorProfile = await prisma.doctorProfile.findUnique({
+    where: { userId: doctorUserId },
+    include: {
+      user: { select: { name: true } },
+    },
+  });
+
+  if (!doctorProfile) {
+    throw new Error('Doctor profile not found');
+  }
+
+  return doctorProfile;
+};
+
+const ensureCaseReviewForAction = async (target, doctorProfile) => {
+  if (target.caseReview) {
+    return target.caseReview.caseId
+      ? getCaseReviewWithScan(target.caseReview.caseId)
+      : target.caseReview;
+  }
+
+  const created = await prisma.caseReview.create({
+    data: {
+      caseId: target.scan.scanId,
+      scanId: target.scan.id,
+      doctorId: doctorProfile.id,
+      reviewStatus: 'pending_review',
+    },
+  });
+
+  return getCaseReviewWithScan(created.caseId);
+};
+
+const getVerificationRequestCaseDetail = async (requestId) => {
+  const request = await getVerificationRequestWithScan(requestId);
+
+  if (!request) {
+    return null;
+  }
+
+  let scan = null;
+  if (request.scanId) {
+    scan = await getScanDetailByIdentifier(request.scanId);
+  }
+
+  if (!scan) {
+    scan = request.patient.scans[0] || null;
+  }
+
+  if (!scan) {
+    throw new Error('Case not found');
+  }
+
+  scan.patient = request.patient;
+
+  return formatCaseDetail({
+    caseId: scan.scanId,
+    requestId: request.requestId,
+    scan,
+    status: request.status,
+    receivedAt: request.submittedAt || request.createdAt,
+  });
+};
+
+const getCaseDetail = async (caseId) => {
+  try {
+    const target = await resolveDoctorCaseIdentifier(caseId);
+
+    if (target.caseReview) {
+      return formatCaseDetail({
+        caseId: target.caseReview.caseId,
+        requestId: target.verificationRequest?.requestId || null,
+        scan: target.scan,
+        status: target.caseReview.reviewStatus,
+        receivedAt: target.caseReview.receivedAt,
+        physicianObservation: target.caseReview.physicianObservation,
+      });
+    }
+
+    return formatCaseDetail({
+      caseId: target.detailCaseId,
+      requestId: target.verificationRequest?.requestId || null,
+      scan: target.scan,
+      status: target.verificationRequest?.status || 'pending',
+      receivedAt: target.verificationRequest?.submittedAt || target.scan.createdAt,
+      physicianObservation: null,
+    });
   } catch (error) {
     throw new Error(`Failed to get case detail: ${error.message}`);
   }
@@ -281,21 +566,9 @@ const getCaseDetail = async (caseId) => {
  */
 const saveObservation = async (caseId, doctorId, observation) => {
   try {
-    const caseReview = await prisma.caseReview.findUnique({
-      where: { caseId }
-    });
-
-    if (!caseReview) {
-      throw new Error('Case not found');
-    }
-
-    const doctorProfile = await prisma.doctorProfile.findUnique({
-      where: { userId: doctorId }
-    });
-
-    if (!doctorProfile) {
-      throw new Error('Doctor profile not found');
-    }
+    const target = await resolveDoctorCaseIdentifier(caseId);
+    const doctorProfile = await getDoctorProfileForAction(doctorId);
+    const caseReview = await ensureCaseReviewForAction(target, doctorProfile);
 
     // Create observation record
     const obs = await prisma.doctorObservation.create({
@@ -320,40 +593,20 @@ const saveObservation = async (caseId, doctorId, observation) => {
  */
 const approveCase = async (caseId, doctorId, physicianObservation, finalDiagnosis) => {
   try {
-    const caseReview = await prisma.caseReview.findUnique({
-      where: { caseId },
-      include: {
-        scan: {
-          include: {
-            patient: {
-              include: {
-                user: { select: { name: true } }
-              }
-            }
-          }
-        },
-        doctor: {
-          include: {
-            user: { select: { name: true } }
-          }
-        }
-      }
-    });
+    const target = await resolveDoctorCaseIdentifier(caseId);
+    const doctorProfile = await getDoctorProfileForAction(doctorId);
+    const caseReview = await ensureCaseReviewForAction(target, doctorProfile);
 
-    if (!caseReview) {
-      throw new Error('Case not found');
+    if (caseReview.reviewStatus === 'approved') {
+      throw new Error('Case sudah pernah di-approve, tidak bisa approve lagi');
     }
 
-    const doctorProfile = await prisma.doctorProfile.findUnique({
-      where: { userId: doctorId }
-    });
-
-    if (!doctorProfile) {
-      throw new Error('Doctor profile not found');
+    if (caseReview.reviewStatus === 'rejected') {
+      throw new Error('Case sudah di-reject sebelumnya, tidak bisa approve');
     }
 
     const updated = await prisma.caseReview.update({
-      where: { caseId },
+      where: { caseId: caseReview.caseId },
       data: {
         doctorId: doctorProfile.id,
         physicianObservation,
@@ -362,6 +615,18 @@ const approveCase = async (caseId, doctorId, physicianObservation, finalDiagnosi
         reviewedAt: new Date()
       }
     });
+
+    if (target.verificationRequest) {
+      await prisma.verificationRequest.update({
+        where: { id: target.verificationRequest.id },
+        data: {
+          status: 'approved',
+          completedAt: new Date(),
+          assignedDoctorId: doctorProfile.id,
+          assignedDoctorName: doctorProfile.user?.name || target.verificationRequest.assignedDoctorName,
+        },
+      });
+    }
 
     // ===== NOTIFIKASI KE PATIENT =====
     // Import createPatientNotification dari patient service
@@ -373,14 +638,16 @@ const approveCase = async (caseId, doctorId, physicianObservation, finalDiagnosi
     await patientService.createPatientNotification(
       patientId,
       'Case Review Completed',
-      `Dr. ${doctorName} has approved and completed the review of your scan (Case ID: ${caseId}). Check your dashboard for the diagnosis.`,
+      `Dr. ${doctorName} has approved and completed the review of your scan (Case ID: ${updated.caseId}). Check your dashboard for the diagnosis.`,
       'scan_complete'
     );
 
     return {
       success: true,
       message: 'Case approved successfully',
-      caseId: updated.caseId
+      caseId: updated.caseId,
+      scanId: caseReview.scan.scanId,
+      requestId: target.verificationRequest?.requestId || null
     };
   } catch (error) {
     throw new Error(`Failed to approve case: ${error.message}`);
@@ -392,40 +659,20 @@ const approveCase = async (caseId, doctorId, physicianObservation, finalDiagnosi
  */
 const rejectCase = async (caseId, doctorId, reason, physicianObservation, finalDiagnosis) => {
   try {
-    const caseReview = await prisma.caseReview.findUnique({
-      where: { caseId },
-      include: {
-        scan: {
-          include: {
-            patient: {
-              include: {
-                user: { select: { name: true } }
-              }
-            }
-          }
-        },
-        doctor: {
-          include: {
-            user: { select: { name: true } }
-          }
-        }
-      }
-    });
+    const target = await resolveDoctorCaseIdentifier(caseId);
+    const doctorProfile = await getDoctorProfileForAction(doctorId);
+    const caseReview = await ensureCaseReviewForAction(target, doctorProfile);
 
-    if (!caseReview) {
-      throw new Error('Case not found');
+    if (caseReview.reviewStatus === 'approved') {
+      throw new Error('Case sudah di-approve sebelumnya, tidak bisa reject');
     }
 
-    const doctorProfile = await prisma.doctorProfile.findUnique({
-      where: { userId: doctorId }
-    });
-
-    if (!doctorProfile) {
-      throw new Error('Doctor profile not found');
+    if (caseReview.reviewStatus === 'rejected') {
+      throw new Error('Case sudah pernah di-reject, tidak bisa reject lagi');
     }
 
     const updated = await prisma.caseReview.update({
-      where: { caseId },
+      where: { caseId: caseReview.caseId },
       data: {
         doctorId: doctorProfile.id,
         rejectionReason: reason,
@@ -436,6 +683,18 @@ const rejectCase = async (caseId, doctorId, reason, physicianObservation, finalD
       }
     });
 
+    if (target.verificationRequest) {
+      await prisma.verificationRequest.update({
+        where: { id: target.verificationRequest.id },
+        data: {
+          status: 'rejected',
+          completedAt: new Date(),
+          assignedDoctorId: doctorProfile.id,
+          assignedDoctorName: doctorProfile.user?.name || target.verificationRequest.assignedDoctorName,
+        },
+      });
+    }
+
     // ===== NOTIFIKASI KE PATIENT =====
     const patientService = require('./patient.service');
     const patientId = caseReview.scan.patient.id;
@@ -445,14 +704,16 @@ const rejectCase = async (caseId, doctorId, reason, physicianObservation, finalD
     await patientService.createPatientNotification(
       patientId,
       'Case Review Rejected',
-      `Dr. ${doctorName} has rejected the review of your scan (Case ID: ${caseId}). Reason: ${reason}. You may resubmit if needed.`,
+      `Dr. ${doctorName} has rejected the review of your scan (Case ID: ${updated.caseId}). Reason: ${reason}. You may resubmit if needed.`,
       'verification_alert'
     );
 
     return {
       success: true,
       message: 'Case rejected successfully',
-      caseId: updated.caseId
+      caseId: updated.caseId,
+      scanId: caseReview.scan.scanId,
+      requestId: target.verificationRequest?.requestId || null
     };
   } catch (error) {
     throw new Error(`Failed to reject case: ${error.message}`);
@@ -869,6 +1130,11 @@ const getCaseHistory = async (userId, filters = {}) => {
           name: c.scan?.patient?.user?.name || null
         },
         clinicalImageUrl: c.scan?.imageUrl || null,
+        scanImageUrl: c.scan?.imageUrl || null,
+        gradcamImageUrl: c.scan?.gradcamUrl || null,
+        annotatedImageUrl: c.scan?.annotatedImageUrl || null,
+        annotationImageUrl: c.scan?.annotatedImageUrl || null,
+        editedGradcamImageUrl: c.scan?.annotatedImageUrl || null,
         aiPrediction: c.scan?.aiPrediction || null,
         finalDiagnosis: c.finalDiagnosis,
         verificationStatus: c.reviewStatus

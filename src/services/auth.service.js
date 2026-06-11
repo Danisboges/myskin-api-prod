@@ -217,24 +217,41 @@ const createFailedLoginSystemLog = async (email, ipAddress) => {
   });
 };
 
-const loginUser = async (email, password, context = {}) => {
-  if (!email || !password) {
-    throw new Error("Email dan password harus disediakan");
+const createAuthInputError = (message, status = 400) => {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+};
+
+const validateLoginCredentials = (email, password) => {
+  const normalizedEmail = validateAndNormalizeEmail(email);
+
+  if (password === undefined || password === null || String(password).trim().length === 0) {
+    throw createAuthInputError("Password wajib diisi");
   }
 
+  return {
+    email: normalizedEmail,
+    password: String(password),
+  };
+};
+
+const loginUser = async (email, password, context = {}) => {
+  const credentials = validateLoginCredentials(email, password);
+
   const user = await prisma.user.findUnique({
-    where: { email: email.trim().toLowerCase() },
+    where: { email: credentials.email },
     include: userDataForLoginInclude(),
   });
 
   if (!user) {
-    await createFailedLoginSystemLog(email, context.ipAddress);
+    await createFailedLoginSystemLog(credentials.email, context.ipAddress);
     throw new Error("Invalid email or password");
   }
 
-  const isPasswordValid = await verifyPassword(password, user.password);
+  const isPasswordValid = await verifyPassword(credentials.password, user.password);
   if (!isPasswordValid) {
-    await createFailedLoginSystemLog(email, context.ipAddress);
+    await createFailedLoginSystemLog(credentials.email, context.ipAddress);
     throw new Error("Invalid email or password");
   }
 

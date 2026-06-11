@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
 
 const prisma = require('../src/config/prisma');
 const doctorService = require('../src/services/doctor.service');
@@ -10,6 +12,8 @@ const created = {
   scanIds: [],
   caseReviewIds: [],
   caseIds: [],
+  reportIds: [],
+  pdfPaths: [],
 };
 
 const stamp = () => `${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
@@ -123,6 +127,12 @@ test.after(async () => {
     });
   }
 
+  if (created.reportIds.length > 0) {
+    await prisma.report.deleteMany({
+      where: { reportId: { in: created.reportIds } },
+    });
+  }
+
   if (created.scanIds.length > 0) {
     await prisma.scan.deleteMany({
       where: { id: { in: created.scanIds } },
@@ -135,29 +145,52 @@ test.after(async () => {
     });
   }
 
+  created.pdfPaths.forEach((pdfPath) => {
+    if (fs.existsSync(pdfPath)) {
+      fs.unlinkSync(pdfPath);
+    }
+  });
+
   await prisma.$disconnect();
 });
 
-test('doctor case report PDF returns detailed PDF buffer', async () => {
+const expectStoredPdf = (result, fileNamePattern) => {
+  assert.equal(result.success, true);
+  assert.match(result.fileName, fileNamePattern);
+  assert.match(result.pdfUrl, /^\/uploads\/reports\/.+\.pdf$/);
+  assert.ok(result.reportId);
+  assert.ok(result.fileSize > 1000);
+  assert.equal(result.dbError, null);
+
+  const pdfPath = path.join(__dirname, '..', result.pdfUrl);
+  created.reportIds.push(result.reportId);
+  created.pdfPaths.push(pdfPath);
+
+  assert.equal(fs.existsSync(pdfPath), true);
+  const pdfBuffer = fs.readFileSync(pdfPath);
+  assert.equal(pdfBuffer.subarray(0, 4).toString(), '%PDF');
+  assert.equal(pdfBuffer.length, result.fileSize);
+};
+
+test('doctor case report PDF returns stored report metadata', async () => {
   const { doctor, caseReview } = await createFixture();
 
   const result = await doctorService.generateDoctorCaseReportPdf(doctor.id, caseReview.caseId);
 
-  assert.equal(result.contentType, 'application/pdf');
-  assert.match(result.fileName, /MySkin_Doctor_Case_Report_/);
-  assert.equal(result.buffer.subarray(0, 4).toString(), '%PDF');
-  assert.ok(result.buffer.length > 1000);
+  expectStoredPdf(result, /MySkin_Doctor_Case_Report_/);
+  assert.equal(result.caseId, caseReview.caseId);
+  assert.equal(result.patientName.startsWith('PDF Patient'), true);
 });
 
-test('doctor case history download returns PDF buffer', async () => {
+test('doctor case history download returns stored report metadata', async () => {
   const { doctor } = await createFixture();
 
   const result = await doctorService.generateDoctorCaseHistoryPdf(doctor.id, {
     status: 'approved',
   });
 
-  assert.equal(result.contentType, 'application/pdf');
-  assert.match(result.fileName, /MySkin_Doctor_Case_History_/);
-  assert.equal(result.buffer.subarray(0, 4).toString(), '%PDF');
-  assert.ok(result.buffer.length > 1000);
+  expectStoredPdf(result, /MySkin_Doctor_Case_History_/);
+  assert.equal(result.casesIncluded, 1);
+  assert.equal(result.approvedCases, 1);
+  assert.equal(result.rejectedCases, 0);
 });

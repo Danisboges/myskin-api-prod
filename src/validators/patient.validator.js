@@ -5,6 +5,9 @@
 
 // ==================== SCAN VALIDATORS ====================
 
+const MIN_COMPLAINT_NON_SPACE_LENGTH = 10;
+const countNonWhitespaceCharacters = (value = '') => String(value).replace(/\s/g, '').length;
+
 const validateScanUpload = (req, res, next) => {
   const { complaint, bodySite } = req.body;
 
@@ -34,10 +37,14 @@ const validateScanUpload = (req, res, next) => {
   }
 
   // Validasi complaint
-  if (!complaint || typeof complaint !== 'string' || complaint.trim().length < 5) {
+  if (
+    !complaint ||
+    typeof complaint !== 'string' ||
+    countNonWhitespaceCharacters(complaint) < MIN_COMPLAINT_NON_SPACE_LENGTH
+  ) {
     return res.status(400).json({
       status: "error",
-      message: "Complaint must be at least 5 characters"
+      message: "Complaint must be at least 10 characters"
     });
   }
 
@@ -190,15 +197,16 @@ const validateSettingsUpdate = (req, res, next) => {
 // ==================== VERIFICATION REQUEST VALIDATORS ====================
 
 const validateVerificationRequest = (req, res, next) => {
-  const { message } = req.body;
+  const message = req.body.message ?? req.body.initialMessage;
 
-  if (!message || typeof message !== 'string' || message.trim().length < 10) {
+  if (!message || typeof message !== 'string' || message.trim().length < 5) {
     return res.status(400).json({
       status: "error",
-      message: "Message must be at least 10 characters"
+      message: "Message must be at least 5 characters"
     });
   }
 
+  req.body.message = message;
   next();
 };
 

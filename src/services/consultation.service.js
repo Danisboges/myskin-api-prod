@@ -716,7 +716,7 @@ const closeConsultation = async (consultationId, userId, reportData = {}) => {
     const report = await prisma.report.create({
       data: {
         scanId: consultation.scanId,
-        patientId: consultation.patientId,
+        patientId: consultation.scan.patientId,
         title: `Consultation Report - ${consultation.scan.scanId}`,
         description: reportData.notes || null,
         diagnosis: reportData.diagnosis || reportData.caseDisposition,

@@ -47,7 +47,7 @@ test('validateCreateUser returns expected errors for invalid payload', () => {
     role: 'Role must be admin, doctor, or patient',
     gender: 'Gender must be male or female',
     password: [
-      'Password minimal 12 karakter',
+      'Password minimal 6 karakter',
       'Password harus mengandung huruf kecil',
       'Password harus mengandung huruf besar',
       'Password harus mengandung simbol',
@@ -82,7 +82,7 @@ test('simple admin validators accept and reject expected values', () => {
   assert.equal(validateResetPassword({ newPassword: 'Str0ng!Pass2026' }), null);
   assert.deepEqual(validateResetPassword({ newPassword: '123' }), {
     newPassword: [
-      'Password minimal 12 karakter',
+      'Password minimal 6 karakter',
       'Password harus mengandung huruf kecil',
       'Password harus mengandung huruf besar',
       'Password harus mengandung simbol',

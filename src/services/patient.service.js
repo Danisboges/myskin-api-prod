@@ -15,6 +15,15 @@ const {
 const { buildAiRequestHeaders, getAiModelConfig } = require('../utils/ai-model.util');
 const doctorNotificationService = require('./doctor-notification.service');
 
+const MIN_SCAN_COMPLAINT_NON_SPACE_LENGTH = 10;
+const countNonWhitespaceCharacters = (value = '') => String(value).replace(/\s/g, '').length;
+
+const createHttpError = (message, status = 400) => {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+};
+
 // ==================== DASHBOARD ====================
 
 const getDashboard = async (userId) => {
@@ -172,10 +181,7 @@ const findScanByIdentifier = async (scanIdentifier, include) => {
 };
 
 const analyzeScan = async (userId, scanId) => {
-  // 1. Ambil URL endpoint dari config (keduanya: predict & gradcam)
-  const { predictUrl, gradcamUrl } = getAiModelConfig();
-
-  // 2. Cari Patient Profile
+  // 1. Cari Patient Profile
   const patient = await prisma.patientProfile.findUnique({
     where: { userId }
   });
@@ -184,21 +190,24 @@ const analyzeScan = async (userId, scanId) => {
     throw new Error('Patient profile not found');
   }
 
-  // 3. Cari Scan Record
+  // 2. Cari Scan Record
   const scan = await findScanByIdentifier(scanId); // Pastikan fungsi pembantu ini sudah kamu import
 
   if (!scan) {
     throw new Error('Scan not found');
   }
 
-  // 4. Validasi kepemilikan scan
+  // 3. Validasi kepemilikan scan
   if (scan.patientId !== patient.id) {
     throw new Error('Unauthorized to access this scan');
   }
 
-  if (scan.isAnalyzed) {
-    throw new Error('Scan has already been analyzed');
+  if (countNonWhitespaceCharacters(scan.complaint) < MIN_SCAN_COMPLAINT_NON_SPACE_LENGTH) {
+    throw createHttpError('Complaint must be at least 10 characters', 400);
   }
+
+  // 4. Ambil URL endpoint dari config (keduanya: predict & gradcam)
+  const { predictUrl, gradcamUrl } = getAiModelConfig();
 
   try {
     const absolutePath = path.join(__dirname, '../../', scan.imageUrl);
@@ -268,7 +277,7 @@ const analyzeScan = async (userId, scanId) => {
         aiPrediction: aiResult.prediction || aiResult.class,
         aiConfidence: parseFloat(aiResult.confidence || aiResult.score || 0),
         aiDetails: JSON.stringify(aiResult),
-        gradcamUrl: savedGradcamUrl // <--- MASUKKAN KE KOLOM BARU DATABASE
+        gradcamUrl: savedGradcamUrl || scan.gradcamUrl
       }
     });
 
@@ -1123,22 +1132,124 @@ const markAllNotificationsAsRead = async (userId) => {
 
 // ==================== DOCTOR & VERIFICATION ====================
 
+const AVAILABLE_DOCTOR_STATUSES = ['verified', 'approved'];
+
+const createPatientHttpError = (message, status = 400) => {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+};
+
 const getAvailableDoctors = async () => {
   const doctors = await prisma.user.findMany({
-    where: { role: 'doctor' },
+    where: {
+      role: 'doctor',
+      status: 'active',
+      doctorProfile: {
+        is: {
+          verificationStatus: { in: AVAILABLE_DOCTOR_STATUSES },
+        },
+      },
+    },
     select: {
       id: true,
       name: true,
       email: true,
       phone: true,
-      avatarUrl: true
+      avatarUrl: true,
+      doctorProfile: {
+        select: {
+          id: true,
+          verificationStatus: true,
+          specialization: true,
+          clinicId: true,
+          clinic: {
+            select: {
+              clinicId: true,
+              name: true,
+            },
+          },
+        },
+      },
     }
   });
 
-  return doctors;
+  return doctors.map((doctor) => ({
+    id: doctor.id,
+    name: doctor.name,
+    email: doctor.email,
+    phone: doctor.phone,
+    avatarUrl: doctor.avatarUrl,
+    doctorProfileId: doctor.doctorProfile?.id || null,
+    verificationStatus: doctor.doctorProfile?.verificationStatus || null,
+    specialization: doctor.doctorProfile?.specialization || null,
+    clinicId: doctor.doctorProfile?.clinicId || null,
+    clinicName: doctor.doctorProfile?.clinic?.name || null,
+  }));
 };
 
-const submitVerificationRequest = async (userId, message) => {
+const findAvailableDoctor = async (doctorId) => {
+  if (!doctorId || typeof doctorId !== 'string' || doctorId.trim().length === 0) {
+    return null;
+  }
+
+  return prisma.doctorProfile.findFirst({
+    where: {
+      OR: [
+        { id: doctorId.trim() },
+        { userId: doctorId.trim() },
+      ],
+      verificationStatus: { in: AVAILABLE_DOCTOR_STATUSES },
+      user: {
+        role: 'doctor',
+        status: 'active',
+      },
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  });
+};
+
+const assertPatientScanExists = async (patientId, scanId) => {
+  if (!scanId || typeof scanId !== 'string' || scanId.trim().length === 0) {
+    return null;
+  }
+
+  const scan = await prisma.scan.findFirst({
+    where: {
+      patientId,
+      OR: [
+        { id: scanId.trim() },
+        { scanId: scanId.trim() },
+      ],
+    },
+    select: {
+      id: true,
+      scanId: true,
+    },
+  });
+
+  if (!scan) {
+    throw createPatientHttpError('Scan not found or unauthorized', 404);
+  }
+
+  return scan;
+};
+
+const submitVerificationRequest = async (userId, payload) => {
+  const requestPayload = typeof payload === 'string' ? { message: payload } : (payload || {});
+  const message = requestPayload.message ?? requestPayload.initialMessage;
+
+  if (!message || typeof message !== 'string' || message.trim().length < 5) {
+    throw createPatientHttpError('Message must be at least 5 characters');
+  }
+
   const patient = await prisma.patientProfile.findUnique({
     where: { userId }
   });
@@ -1159,13 +1270,27 @@ const submitVerificationRequest = async (userId, message) => {
     throw new Error('You already have a pending verification request');
   }
 
+  const scan = await assertPatientScanExists(patient.id, requestPayload.scanId);
+  const doctor = await findAvailableDoctor(requestPayload.doctorId);
+
+  if (requestPayload.doctorId && !doctor) {
+    throw createPatientHttpError('Selected doctor is not available');
+  }
+
   const requestId = `VER-${Date.now()}`;
 
   const verificationRequest = await prisma.verificationRequest.create({
     data: {
       requestId,
       patientId: patient.id,
-      message
+      ...(scan && {
+        scanId: scan.scanId,
+      }),
+      message: message.trim(),
+      ...(doctor && {
+        assignedDoctorId: doctor.id,
+        assignedDoctorName: doctor.user.name,
+      }),
     }
   });
 
@@ -1181,6 +1306,9 @@ const submitVerificationRequest = async (userId, message) => {
     requestId: verificationRequest.requestId,
     status: verificationRequest.status,
     submittedAt: verificationRequest.submittedAt,
+    doctorId: doctor?.userId || null,
+    doctorProfileId: doctor?.id || null,
+    scanId: scan?.scanId || null,
     message: 'Verification request submitted successfully'
   };
 };

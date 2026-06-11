@@ -445,6 +445,7 @@ model VerificationRequest {
   requestId          String         @unique @default(uuid())
   patientId          String
   patient            PatientProfile @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  scanId             String?
   message            String?        @db.Text
   assignedDoctorId   String?
   assignedDoctorName String?

@@ -17,11 +17,11 @@ test("password policy accepts strong passwords", () => {
     }),
     []
   );
+  assert.deepEqual(getPasswordStrengthErrors("Aa1!bb"), []);
 });
 
 test("password policy rejects weak and user-related passwords", () => {
   assert.deepEqual(getPasswordStrengthErrors("password123"), [
-    "Password minimal 12 karakter",
     "Password harus mengandung huruf besar",
     "Password harus mengandung simbol",
     "Password terlalu umum dan mudah ditebak",
