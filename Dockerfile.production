@@ -1,0 +1,31 @@
+# Production image for melanoma-api.
+# Use this when deploying with an external managed PostgreSQL database.
+FROM node:20-slim
+
+RUN apt-get update -y \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Prisma 7 reads DATABASE_URL while generating the client.
+# The real production DATABASE_URL must be provided at runtime by the platform.
+ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/melanoma?schema=public
+
+COPY package*.json ./
+COPY prisma ./prisma
+COPY prisma.config.ts ./
+
+RUN npm ci
+RUN npx prisma generate
+
+COPY . .
+
+RUN mkdir -p uploads
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+EXPOSE 3000
+
+CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]
