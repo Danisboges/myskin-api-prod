@@ -1234,6 +1234,9 @@ const assertPatientScanExists = async (patientId, scanId) => {
     select: {
       id: true,
       scanId: true,
+      imageUrl: true,
+      bodySite: true,
+      complaint: true,
     },
   });
 
@@ -1246,7 +1249,11 @@ const assertPatientScanExists = async (patientId, scanId) => {
 
 const submitVerificationRequest = async (userId, payload) => {
   const requestPayload = typeof payload === 'string' ? { message: payload } : (payload || {});
-  const message = requestPayload.message ?? requestPayload.initialMessage;
+  const message = requestPayload.message ?? requestPayload.initialMessage ?? 'Please review this scan with a doctor.';
+  const scanIdentifier = requestPayload.patientScanId ?? requestPayload.scanId;
+  const doctorIdentifier = requestPayload.doctorId ?? requestPayload.doctorUserId;
+
+  console.log("Create verification body:", requestPayload);
 
   if (!message || typeof message !== 'string' || message.trim().length < 5) {
     throw createPatientHttpError('Message must be at least 5 characters');
@@ -1260,23 +1267,25 @@ const submitVerificationRequest = async (userId, payload) => {
     throw new Error('Patient profile not found');
   }
 
-  // Check existing pending requests
-  const existingRequest = await prisma.verificationRequest.findFirst({
-    where: {
-      patientId: patient.id,
-      status: 'pending'
-    }
-  });
+  const scan = await assertPatientScanExists(patient.id, scanIdentifier);
+  console.log("Resolved patientScan:", scan?.id, scan?.scanId);
+  const doctor = await findAvailableDoctor(doctorIdentifier);
 
-  if (existingRequest) {
-    throw new Error('You already have a pending verification request');
+  if (doctorIdentifier && !doctor) {
+    throw createPatientHttpError('Selected doctor is not available');
   }
 
-  const scan = await assertPatientScanExists(patient.id, requestPayload.scanId);
-  const doctor = await findAvailableDoctor(requestPayload.doctorId);
+  if (!scan) {
+    const existingRequest = await prisma.verificationRequest.findFirst({
+      where: {
+        patientId: patient.id,
+        status: 'pending'
+      }
+    });
 
-  if (requestPayload.doctorId && !doctor) {
-    throw createPatientHttpError('Selected doctor is not available');
+    if (existingRequest) {
+      throw new Error('You already have a pending verification request');
+    }
   }
 
   const requestId = `VER-${Date.now()}`;
@@ -1286,7 +1295,7 @@ const submitVerificationRequest = async (userId, payload) => {
       requestId,
       patientId: patient.id,
       ...(scan && {
-        scanId: scan.scanId,
+        scanId: scan.id,
       }),
       message: message.trim(),
       ...(doctor && {
@@ -1295,6 +1304,7 @@ const submitVerificationRequest = async (userId, payload) => {
       }),
     }
   });
+  console.log("Created verification request:", verificationRequest.id, verificationRequest.scanId);
 
   // Create notification untuk patient
   await createPatientNotification(
@@ -1304,6 +1314,15 @@ const submitVerificationRequest = async (userId, payload) => {
     'verification_alert'
   );
 
+  if (doctor) {
+    await createDoctorNotification(
+      doctor.id,
+      'New Verification Request',
+      `A patient submitted a verification request${scan ? ` for scan ${scan.scanId}` : ''}.`,
+      'verification_alert'
+    );
+  }
+
   return {
     requestId: verificationRequest.requestId,
     status: verificationRequest.status,
@@ -1311,6 +1330,7 @@ const submitVerificationRequest = async (userId, payload) => {
     doctorId: doctor?.userId || null,
     doctorProfileId: doctor?.id || null,
     scanId: scan?.scanId || null,
+    patientScanId: scan?.id || null,
     message: 'Verification request submitted successfully'
   };
 };

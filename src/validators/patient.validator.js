@@ -198,6 +198,11 @@ const validateSettingsUpdate = (req, res, next) => {
 
 const validateVerificationRequest = (req, res, next) => {
   const message = req.body.message ?? req.body.initialMessage;
+  const scanIdentifier = req.body.patientScanId ?? req.body.scanId;
+
+  if (!message && scanIdentifier) {
+    return next();
+  }
 
   if (!message || typeof message !== 'string' || message.trim().length < 5) {
     return res.status(400).json({
@@ -206,7 +211,7 @@ const validateVerificationRequest = (req, res, next) => {
     });
   }
 
-  req.body.message = message;
+  req.body.message = message.trim();
   next();
 };
 

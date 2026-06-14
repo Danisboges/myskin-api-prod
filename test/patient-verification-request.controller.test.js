@@ -227,9 +227,111 @@ test("POST /api/v1/patient/verification-requests accepts initialMessage, doctorI
   created.requestIds.push(request.id);
 
   assert.equal(request.message, "Please review this scan with a doctor.");
-  assert.equal(request.scanId, scan.scanId);
+  assert.equal(request.scanId, scan.id);
   assert.equal(request.assignedDoctorId, doctor.doctorProfile.id);
   assert.equal(request.assignedDoctorName, doctor.name);
+});
+
+test("POST /api/v1/patient/verification-requests accepts patientScanId UUID and doctorUserId payload", async () => {
+  const { user, token } = await createPatient();
+  const doctor = await createDoctor({ verificationStatus: "verified" });
+  const scan = await prisma.scan.create({
+    data: {
+      patientId: user.patientProfile.id,
+      imageUrl: "/uploads/test-verification-new-upload.jpg",
+      complaint: "Newest uploaded lesion",
+      bodySite: "back",
+    },
+  });
+  created.scanIds.push(scan.id);
+
+  const res = await requestJson({
+    method: "POST",
+    path: "/api/v1/patient/verification-requests",
+    token,
+    body: {
+      doctorUserId: doctor.id,
+      doctorId: doctor.doctorProfile.id,
+      scanId: scan.id,
+      patientScanId: scan.id,
+    },
+  });
+
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.status, "success");
+  assert.equal(res.body.data.doctorId, doctor.id);
+  assert.equal(res.body.data.doctorProfileId, doctor.doctorProfile.id);
+  assert.equal(res.body.data.scanId, scan.scanId);
+  assert.equal(res.body.data.patientScanId, scan.id);
+
+  const request = await prisma.verificationRequest.findUnique({
+    where: { requestId: res.body.data.requestId },
+  });
+  created.requestIds.push(request.id);
+
+  assert.equal(request.scanId, scan.id);
+  assert.equal(request.assignedDoctorId, doctor.doctorProfile.id);
+  assert.equal(request.message, "Please review this scan with a doctor.");
+});
+
+test("POST /api/v1/patient/verification-requests creates a new request for a new scan despite existing pending request", async () => {
+  const { user, token } = await createPatient();
+  const doctor = await createDoctor({ verificationStatus: "verified" });
+  const scanA = await prisma.scan.create({
+    data: {
+      patientId: user.patientProfile.id,
+      imageUrl: "/uploads/test-verification-a.jpg",
+      complaint: "Scan A",
+      bodySite: "arm",
+    },
+  });
+  const scanB = await prisma.scan.create({
+    data: {
+      patientId: user.patientProfile.id,
+      imageUrl: "/uploads/test-verification-b.jpg",
+      complaint: "Scan B",
+      bodySite: "neck",
+    },
+  });
+  created.scanIds.push(scanA.id, scanB.id);
+
+  const first = await requestJson({
+    method: "POST",
+    path: "/api/v1/patient/verification-requests",
+    token,
+    body: {
+      doctorId: doctor.id,
+      patientScanId: scanA.id,
+      message: "Please review scan A.",
+    },
+  });
+  assert.equal(first.statusCode, 201);
+
+  const second = await requestJson({
+    method: "POST",
+    path: "/api/v1/patient/verification-requests",
+    token,
+    body: {
+      doctorId: doctor.id,
+      patientScanId: scanB.id,
+      message: "Please review scan B.",
+    },
+  });
+  assert.equal(second.statusCode, 201);
+  assert.notEqual(second.body.data.requestId, first.body.data.requestId);
+  assert.equal(second.body.data.patientScanId, scanB.id);
+
+  const requests = await prisma.verificationRequest.findMany({
+    where: {
+      requestId: { in: [first.body.data.requestId, second.body.data.requestId] },
+    },
+    orderBy: { submittedAt: "asc" },
+  });
+  created.requestIds.push(...requests.map((request) => request.id));
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].scanId, scanA.id);
+  assert.equal(requests[1].scanId, scanB.id);
 });
 
 test("POST /api/v1/patient/verification-requests rejects unavailable doctorId", async () => {

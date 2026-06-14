@@ -186,7 +186,9 @@ const saveObservation = async (req, res) => {
 const approveCase = async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { physicianObservation, finalDiagnosis } = req.body;
+    console.log("Approve/Reject body:", req.body);
+    const physicianObservation = req.body.physicianObservation?.trim();
+    const finalDiagnosis = req.body.finalDiagnosis?.trim();
     const userId = req.user.id;
 
     // Validation
@@ -200,14 +202,14 @@ const approveCase = async (req, res) => {
     if (!physicianObservation || physicianObservation.trim() === '') {
       return res.status(400).json({
         status: 'error',
-        message: 'physicianObservation is required'
+        message: 'Physician observation is required before approving this case.'
       });
     }
 
-    if (!finalDiagnosis || finalDiagnosis.trim() === '') {
+    if (!finalDiagnosis || finalDiagnosis === '') {
       return res.status(400).json({
         status: 'error',
-        message: 'finalDiagnosis is required'
+        message: 'Final diagnosis is required before approving this case.'
       });
     }
 
@@ -250,7 +252,10 @@ const approveCase = async (req, res) => {
 const rejectCase = async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { reason, physicianObservation, finalDiagnosis } = req.body;
+    console.log("Approve/Reject body:", req.body);
+    const reason = req.body.reason?.trim();
+    const physicianObservation = req.body.physicianObservation?.trim();
+    const finalDiagnosis = req.body.finalDiagnosis?.trim();
     const userId = req.user.id;
 
     // Validation
@@ -261,24 +266,24 @@ const rejectCase = async (req, res) => {
       });
     }
 
-    if (!reason || reason.trim() === '') {
+    if (!reason || reason === '') {
       return res.status(400).json({
         status: 'error',
-        message: 'reason is required'
+        message: 'Rejection reason is required before rejecting this case.'
       });
     }
 
-    if (!physicianObservation || physicianObservation.trim() === '') {
+    if (!physicianObservation || physicianObservation === '') {
       return res.status(400).json({
         status: 'error',
-        message: 'physicianObservation is required'
+        message: 'Physician observation is required before rejecting this case.'
       });
     }
 
-    if (!finalDiagnosis || finalDiagnosis.trim() === '') {
+    if (!finalDiagnosis || finalDiagnosis === '') {
       return res.status(400).json({
         status: 'error',
-        message: 'finalDiagnosis is required'
+        message: 'Final diagnosis is required before rejecting this case.'
       });
     }
 

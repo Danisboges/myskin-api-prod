@@ -103,6 +103,30 @@ const createVerificationTarget = async () => {
   return { doctor, patient, scan, request };
 };
 
+const createVerificationRequestForScan = async ({
+  doctor,
+  patient,
+  scan,
+  suffix = '',
+  status = 'pending',
+  submittedAt = new Date(),
+}) => {
+  const request = await prisma.verificationRequest.create({
+    data: {
+      requestId: `VER-${Date.now()}-${Math.random().toString(36).slice(2, 5)}${suffix}`,
+      patientId: patient.patientProfile.id,
+      scanId: scan.id,
+      assignedDoctorId: doctor.doctorProfile.id,
+      assignedDoctorName: doctor.name,
+      message: `Please review ${scan.scanId}.`,
+      status,
+      submittedAt,
+    },
+  });
+
+  return request;
+};
+
 test.after(async () => {
   if (created.patientIds.length > 0) {
     await prisma.verificationRequest.deleteMany({
@@ -145,6 +169,133 @@ test("getAssignedCases returns pending verification requests assigned to logged-
   assert.equal(typeof assignedRequest.receivedAt, "string");
 });
 
+test("getAssignedCases uses verification request scan and returns newest request first", async () => {
+  const doctor = await createDoctor();
+  const patient = await createPatientWithScan();
+  const scanA = patient.patientProfile.scans[0];
+  await prisma.scan.update({
+    where: { id: scanA.id },
+    data: {
+      imageUrl: "/uploads/scan-a.jpg",
+      bodySite: "arm",
+      complaint: "Older lesion on arm",
+    },
+  });
+
+  const now = Date.now();
+  const requestA = await createVerificationRequestForScan({
+    doctor,
+    patient,
+    scan: scanA,
+    suffix: '-a',
+    submittedAt: new Date(now),
+  });
+  const scanB = await prisma.scan.create({
+    data: {
+      patientId: patient.patientProfile.id,
+      imageUrl: "/uploads/scan-b-new.jpg",
+      complaint: "Newest lesion on back",
+      bodySite: "back",
+      uploadedAt: new Date(Date.now() + 1000),
+    },
+  });
+  const requestB = await createVerificationRequestForScan({
+    doctor,
+    patient,
+    scan: scanB,
+    suffix: '-b',
+    submittedAt: new Date(now + 2000),
+  });
+
+  const cases = await getAssignedCases(doctor.id);
+  const verificationCases = cases.filter((item) => (
+    item.type === "verification_request" &&
+    [requestA.requestId, requestB.requestId].includes(item.requestId)
+  ));
+
+  assert.equal(verificationCases.length, 2);
+  assert.equal(verificationCases[0].requestId, requestB.requestId);
+  assert.equal(verificationCases[0].patientScanId, scanB.id);
+  assert.equal(verificationCases[0].scanId, scanB.scanId);
+  assert.equal(verificationCases[0].caseId, scanB.scanId);
+  assert.equal(verificationCases[0].scanImageUrl, "/uploads/scan-b-new.jpg");
+  assert.equal(verificationCases[0].imageUrl, "/uploads/scan-b-new.jpg");
+  assert.equal(verificationCases[0].bodySite, "back");
+  assert.equal(verificationCases[0].complaint, "Newest lesion on back");
+  assert.equal(verificationCases[0].status, "pending");
+
+  assert.equal(verificationCases[1].requestId, requestA.requestId);
+  assert.equal(verificationCases[1].patientScanId, scanA.id);
+  assert.equal(verificationCases[1].scanId, scanA.scanId);
+  assert.equal(verificationCases[1].scanImageUrl, "/uploads/scan-a.jpg");
+});
+
+test("getAssignedCases includes only active verification request statuses", async () => {
+  const doctor = await createDoctor();
+  const patient = await createPatientWithScan();
+  const scan = patient.patientProfile.scans[0];
+  const pendingRequest = await createVerificationRequestForScan({
+    doctor,
+    patient,
+    scan,
+    suffix: "-pending",
+    status: "pending",
+  });
+  const approvedRequest = await createVerificationRequestForScan({
+    doctor,
+    patient,
+    scan,
+    suffix: "-approved",
+    status: "approved",
+  });
+  const rejectedRequest = await createVerificationRequestForScan({
+    doctor,
+    patient,
+    scan,
+    suffix: "-rejected",
+    status: "rejected",
+  });
+
+  const cases = await getAssignedCases(doctor.id);
+  const requestIds = cases.map((item) => item.requestId).filter(Boolean);
+
+  assert.ok(requestIds.includes(pendingRequest.requestId));
+  assert.ok(!requestIds.includes(approvedRequest.requestId));
+  assert.ok(!requestIds.includes(rejectedRequest.requestId));
+});
+
+test("getAssignedCases removes verification request after approve or reject", async () => {
+  const approveTarget = await createVerificationTarget();
+  const rejectTarget = await createVerificationTarget();
+
+  const beforeApprove = await getAssignedCases(approveTarget.doctor.id);
+  assert.ok(beforeApprove.some((item) => item.requestId === approveTarget.request.requestId));
+
+  await approveCase(
+    approveTarget.scan.scanId,
+    approveTarget.doctor.id,
+    "Approved from assigned cases.",
+    "Benign"
+  );
+
+  const afterApprove = await getAssignedCases(approveTarget.doctor.id);
+  assert.ok(!afterApprove.some((item) => item.requestId === approveTarget.request.requestId));
+
+  const beforeReject = await getAssignedCases(rejectTarget.doctor.id);
+  assert.ok(beforeReject.some((item) => item.requestId === rejectTarget.request.requestId));
+
+  await rejectCase(
+    rejectTarget.scan.scanId,
+    rejectTarget.doctor.id,
+    "False positive prediction",
+    "Rejected from assigned cases.",
+    "Rejected"
+  );
+
+  const afterReject = await getAssignedCases(rejectTarget.doctor.id);
+  assert.ok(!afterReject.some((item) => item.requestId === rejectTarget.request.requestId));
+});
+
 test("getCaseDetail resolves verification request detail by scanId and requestId", async () => {
   const { patient, scan, request } = await createVerificationTarget();
 
@@ -164,7 +315,7 @@ test("getCaseDetail resolves verification request detail by scanId and requestId
 test("approveCase accepts scanId and updates verification request", async () => {
   const { doctor, scan, request } = await createVerificationTarget();
 
-  const result = await approveCase(scan.scanId, doctor.id, "Looks clinically malignant.", "Malignant");
+  const result = await approveCase(scan.scanId, doctor.id, "  Looks clinically malignant.  ", "  Malignant  ");
 
   assert.equal(result.caseId, scan.scanId);
   assert.equal(result.scanId, scan.scanId);
@@ -174,6 +325,12 @@ test("approveCase accepts scanId and updates verification request", async () => 
     where: { id: request.id },
   });
   assert.equal(updatedRequest.status, "approved");
+
+  const caseReview = await prisma.caseReview.findUnique({
+    where: { caseId: scan.scanId },
+  });
+  assert.equal(caseReview.physicianObservation, "Looks clinically malignant.");
+  assert.equal(caseReview.finalDiagnosis, "Malignant");
 });
 
 test("approveCase accepts verification requestId", async () => {
@@ -192,9 +349,9 @@ test("rejectCase accepts scanId and updates verification request", async () => {
   const result = await rejectCase(
     scan.scanId,
     doctor.id,
-    "False positive prediction",
-    "No malignant features seen.",
-    "Rejected"
+    "  False positive prediction  ",
+    "  No malignant features seen.  ",
+    "  Rejected  "
   );
 
   assert.equal(result.caseId, scan.scanId);
@@ -205,6 +362,13 @@ test("rejectCase accepts scanId and updates verification request", async () => {
     where: { id: request.id },
   });
   assert.equal(updatedRequest.status, "rejected");
+
+  const caseReview = await prisma.caseReview.findUnique({
+    where: { caseId: scan.scanId },
+  });
+  assert.equal(caseReview.rejectionReason, "False positive prediction");
+  assert.equal(caseReview.physicianObservation, "No malignant features seen.");
+  assert.equal(caseReview.finalDiagnosis, "Rejected");
 });
 
 test("rejectCase accepts verification requestId", async () => {
@@ -221,6 +385,91 @@ test("rejectCase accepts verification requestId", async () => {
   assert.equal(result.caseId, scan.scanId);
   assert.equal(result.scanId, scan.scanId);
   assert.equal(result.requestId, request.requestId);
+});
+
+test("approveCase fails only when physicianObservation is empty", async () => {
+  const { doctor, scan } = await createVerificationTarget();
+
+  await assert.rejects(
+    approveCase(scan.scanId, doctor.id, "   ", "Approved"),
+    /Physician observation is required/
+  );
+});
+
+test("rejectCase fails only when physicianObservation is empty", async () => {
+  const { doctor, scan } = await createVerificationTarget();
+
+  await assert.rejects(
+    rejectCase(scan.scanId, doctor.id, "False positive prediction", "   ", "Rejected"),
+    /Physician observation is required/
+  );
+});
+
+test("approveCase accepts database UUID identifiers", async () => {
+  const scanTarget = await createVerificationTarget();
+  const requestTarget = await createVerificationTarget();
+  const reviewTarget = await createVerificationTarget();
+
+  const scanResult = await approveCase(
+    scanTarget.scan.id,
+    scanTarget.doctor.id,
+    "Approved using scan UUID.",
+    "Benign"
+  );
+  assert.equal(scanResult.scanId, scanTarget.scan.scanId);
+  assert.equal(scanResult.requestId, scanTarget.request.requestId);
+
+  const requestResult = await approveCase(
+    requestTarget.request.id,
+    requestTarget.doctor.id,
+    "Approved using request UUID.",
+    "Benign"
+  );
+  assert.equal(requestResult.scanId, requestTarget.scan.scanId);
+  assert.equal(requestResult.requestId, requestTarget.request.requestId);
+
+  const review = await prisma.caseReview.create({
+    data: {
+      caseId: `CASE-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      scanId: reviewTarget.scan.id,
+      doctorId: reviewTarget.doctor.doctorProfile.id,
+      reviewStatus: "pending_review",
+    },
+  });
+
+  const reviewResult = await approveCase(
+    review.id,
+    reviewTarget.doctor.id,
+    "Approved using case review UUID.",
+    "Benign"
+  );
+  assert.equal(reviewResult.caseId, review.caseId);
+  assert.equal(reviewResult.scanId, reviewTarget.scan.scanId);
+});
+
+test("rejectCase accepts database UUID identifiers", async () => {
+  const scanTarget = await createVerificationTarget();
+  const requestTarget = await createVerificationTarget();
+
+  const scanResult = await rejectCase(
+    scanTarget.scan.id,
+    scanTarget.doctor.id,
+    "False positive prediction",
+    "Rejected using scan UUID.",
+    "Benign"
+  );
+  assert.equal(scanResult.scanId, scanTarget.scan.scanId);
+  assert.equal(scanResult.requestId, scanTarget.request.requestId);
+
+  const requestResult = await rejectCase(
+    requestTarget.request.id,
+    requestTarget.doctor.id,
+    "False positive prediction",
+    "Rejected using request UUID.",
+    "Benign"
+  );
+  assert.equal(requestResult.scanId, requestTarget.scan.scanId);
+  assert.equal(requestResult.requestId, requestTarget.request.requestId);
 });
 
 test("observation accepts scanId and verification requestId", async () => {

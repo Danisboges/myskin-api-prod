@@ -240,6 +240,29 @@ test('sendMessage accepts attachments without text and returns attachment metada
   );
 });
 
+test('sendMessage creates doctor notification when patient sends chat', async () => {
+  const { patient, doctor, consultation } = await createConsultationFixture();
+
+  await sendMessage(
+    consultation.id,
+    patient.id,
+    'Dokter, saya ingin menanyakan hasil scan ini.'
+  );
+
+  const notification = await prisma.notification.findFirst({
+    where: {
+      doctorId: doctor.doctorProfile.id,
+      title: { contains: patient.name },
+      type: 'system_message',
+      isRead: false,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  assert.ok(notification);
+  assert.equal(notification.message, 'Dokter, saya ingin menanyakan hasil scan ini.');
+});
+
 test('only assigned doctor can create prescriptions', async () => {
   const { doctor, otherDoctor, consultation } = await createConsultationFixture();
 
