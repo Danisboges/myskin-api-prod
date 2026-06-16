@@ -1,8 +1,11 @@
 const prisma = require('../config/prisma');
 const axios = require('axios');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { publishConsultationEvent } = require('../services/consultation-events.service');
 
 const AI_BOT_NAME = 'Gemma AI';
+const AI_BOT_EMAIL = 'gemma.ai@myskin.local';
 const GEMMA_API_URL = process.env.GEMMA_API_URL?.trim() || '';
 const GEMMA_API_TIMEOUT_MS = Number(process.env.GEMMA_API_TIMEOUT_MS || 60000);
 
@@ -35,13 +38,53 @@ const validatePatientConsultation = (consultation, userId) => {
 };
 
 const validateAiConsultation = (consultation) => {
-  if (process.env.AI_BOT_USER_ID && consultation.doctorId !== process.env.AI_BOT_USER_ID) {
+  const configuredAiBotUserId = process.env.AI_BOT_USER_ID?.trim();
+  if (configuredAiBotUserId && consultation.doctorId !== configuredAiBotUserId) {
     throw new Error('Unauthorized: This consultation is not assigned to Gemma AI');
   }
 };
 
-const getAiBotUserId = (consultation) => {
-  return process.env.AI_BOT_USER_ID || consultation.doctorId;
+const getOrCreateInternalAiBotUser = async () => {
+  const existingBot = await prisma.user.findUnique({
+    where: { email: AI_BOT_EMAIL },
+    select: { id: true }
+  });
+
+  if (existingBot) {
+    return existingBot;
+  }
+
+  try {
+    return await prisma.user.create({
+      data: {
+        name: AI_BOT_NAME,
+        email: AI_BOT_EMAIL,
+        password: await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10),
+        role: 'doctor',
+        status: 'active',
+      },
+      select: { id: true }
+    });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return prisma.user.findUnique({
+        where: { email: AI_BOT_EMAIL },
+        select: { id: true }
+      });
+    }
+
+    throw error;
+  }
+};
+
+const getAiBotUserId = async () => {
+  const configuredAiBotUserId = process.env.AI_BOT_USER_ID?.trim();
+  if (configuredAiBotUserId) {
+    return configuredAiBotUserId;
+  }
+
+  const aiBotUser = await getOrCreateInternalAiBotUser();
+  return aiBotUser.id;
 };
 
 const formatConfidence = (confidence) => {
@@ -231,7 +274,7 @@ const sendAiMessage = async (userId, consultationId, messageContent) => {
     throw new Error('Cannot send messages in a closed consultation');
   }
 
-  const aiBotUserId = getAiBotUserId(consultation);
+  const aiBotUserId = await getAiBotUserId();
 
   const userMessage = await prisma.chatMessage.create({
     data: {
