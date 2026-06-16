@@ -14,6 +14,8 @@ const {
   loginWithGoogleProfile,
   requestPasswordReset,
   resetPassword,
+  getGoogleAuthorizationUrl,
+  getGoogleCallbackUrl,
 } = require('../src/services/auth.service');
 
 const createdUserIds = [];
@@ -469,6 +471,45 @@ test('forgot password returns generic success when email delivery fails', async 
 
   assert.equal(result.message, 'Jika email terdaftar, instruksi reset password akan dikirim.');
   assert.equal('resetToken' in result, false);
+});
+
+test('Google OAuth callback URL uses deployed backend domain from env', async () => {
+  const originalGoogleClientId = process.env.GOOGLE_CLIENT_ID;
+  const originalGoogleCallbackUrl = process.env.GOOGLE_CALLBACK_URL;
+  const originalBackendUrl = process.env.BACKEND_URL;
+
+  process.env.GOOGLE_CLIENT_ID = 'google-client-id';
+  delete process.env.GOOGLE_CALLBACK_URL;
+  process.env.BACKEND_URL = 'https://api.example.com';
+
+  try {
+    const callbackUrl = getGoogleCallbackUrl();
+    const authorizationUrl = new URL(getGoogleAuthorizationUrl());
+
+    assert.equal(callbackUrl, 'https://api.example.com/api/auth/google/callback');
+    assert.equal(
+      authorizationUrl.searchParams.get('redirect_uri'),
+      'https://api.example.com/api/auth/google/callback'
+    );
+  } finally {
+    if (originalGoogleClientId === undefined) {
+      delete process.env.GOOGLE_CLIENT_ID;
+    } else {
+      process.env.GOOGLE_CLIENT_ID = originalGoogleClientId;
+    }
+
+    if (originalGoogleCallbackUrl === undefined) {
+      delete process.env.GOOGLE_CALLBACK_URL;
+    } else {
+      process.env.GOOGLE_CALLBACK_URL = originalGoogleCallbackUrl;
+    }
+
+    if (originalBackendUrl === undefined) {
+      delete process.env.BACKEND_URL;
+    } else {
+      process.env.BACKEND_URL = originalBackendUrl;
+    }
+  }
 });
 
 test('existing patient can login with Google', async () => {

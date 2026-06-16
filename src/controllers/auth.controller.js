@@ -5,6 +5,19 @@ const isPrismaInternalError = (err) => (
   err?.message?.includes("Invalid `prisma.")
 );
 
+const getFrontendGoogleCallbackUrl = () => {
+  const frontendUrl = process.env.FRONTEND_URL?.trim();
+  if (!frontendUrl) {
+    throw new Error('FRONTEND_URL is required for Google OAuth redirect');
+  }
+
+  const normalizedFrontendUrl = /^https?:\/\//i.test(frontendUrl)
+    ? frontendUrl
+    : `https://${frontendUrl}`;
+
+  return new URL('/auth/google/callback', normalizedFrontendUrl).toString();
+};
+
 const register = async (req, res) => {
   try {
     console.log("Mencoba Register:", req.body.email);
@@ -91,18 +104,26 @@ const redirectToGoogle = (req, res) => {
     res.redirect(authService.getGoogleAuthorizationUrl());
   } catch (err) {
     console.error("Gagal memulai Google OAuth:", err.message);
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const callbackUrl = new URL('/auth/google/callback', frontendUrl);
-    callbackUrl.searchParams.set('error', err.message);
-    res.redirect(callbackUrl.toString());
+    try {
+      const callbackUrl = new URL(getFrontendGoogleCallbackUrl());
+      callbackUrl.searchParams.set('error', err.message);
+      return res.redirect(callbackUrl.toString());
+    } catch (redirectError) {
+      return res.status(500).json({
+        status: "error",
+        message: redirectError.message,
+        oauthError: err.message,
+      });
+    }
   }
 };
 
 const googleCallback = async (req, res) => {
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-  const callbackUrl = new URL('/auth/google/callback', frontendUrl);
+  let callbackUrl;
 
   try {
+    callbackUrl = new URL(getFrontendGoogleCallbackUrl());
+
     if (req.query.error) {
       throw new Error(req.query.error);
     }
@@ -117,7 +138,17 @@ const googleCallback = async (req, res) => {
     }
   } catch (err) {
     console.error("Gagal Google Login:", err.message);
-    callbackUrl.searchParams.set('error', err.message);
+    try {
+      const callbackUrl = new URL(getFrontendGoogleCallbackUrl());
+      callbackUrl.searchParams.set('error', err.message);
+      return res.redirect(callbackUrl.toString());
+    } catch (redirectError) {
+      return res.status(500).json({
+        status: "error",
+        message: redirectError.message,
+        oauthError: err.message,
+      });
+    }
   }
 
   res.redirect(callbackUrl.toString());

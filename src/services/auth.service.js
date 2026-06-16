@@ -433,6 +433,42 @@ const createGoogleOAuthState = () => jwt.sign(
   { expiresIn: '10m' }
 );
 
+const normalizeBaseUrl = (value) => {
+  if (!value || typeof value !== 'string') {
+    return '';
+  }
+
+  const trimmed = value.trim().replace(/\/+$/, '');
+  if (!trimmed) {
+    return '';
+  }
+
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+};
+
+const getGoogleCallbackUrl = () => {
+  const explicitCallbackUrl = process.env.GOOGLE_CALLBACK_URL?.trim();
+  if (explicitCallbackUrl) {
+    return explicitCallbackUrl;
+  }
+
+  const backendBaseUrl = normalizeBaseUrl(
+    process.env.BACKEND_URL ||
+    process.env.API_BASE_URL ||
+    process.env.PUBLIC_API_URL ||
+    process.env.RAILWAY_PUBLIC_DOMAIN ||
+    process.env.RENDER_EXTERNAL_URL
+  );
+
+  if (!backendBaseUrl) {
+    throw new Error(
+      'Missing Google OAuth configuration: set GOOGLE_CALLBACK_URL or BACKEND_URL'
+    );
+  }
+
+  return `${backendBaseUrl}/api/auth/google/callback`;
+};
+
 const verifyGoogleOAuthState = (state) => {
   if (!state) {
     const error = new Error('Google OAuth state is missing');
@@ -450,16 +486,18 @@ const verifyGoogleOAuthState = (state) => {
 };
 
 const getGoogleAuthorizationUrl = () => {
-  const requiredEnv = ['GOOGLE_CLIENT_ID', 'GOOGLE_CALLBACK_URL'];
+  const requiredEnv = ['GOOGLE_CLIENT_ID'];
   const missingEnv = requiredEnv.filter((key) => !process.env[key]);
 
   if (missingEnv.length > 0) {
     throw new Error(`Missing Google OAuth configuration: ${missingEnv.join(', ')}`);
   }
 
+  const googleCallbackUrl = getGoogleCallbackUrl();
+
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
-    redirect_uri: process.env.GOOGLE_CALLBACK_URL,
+    redirect_uri: googleCallbackUrl,
     response_type: 'code',
     scope: 'openid email profile',
     access_type: 'online',
@@ -473,12 +511,14 @@ const getGoogleAuthorizationUrl = () => {
 const getGoogleProfileFromCode = async (code, state) => {
   verifyGoogleOAuthState(state);
 
-  const requiredEnv = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL'];
+  const requiredEnv = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
   const missingEnv = requiredEnv.filter((key) => !process.env[key]);
 
   if (missingEnv.length > 0) {
     throw new Error(`Missing Google OAuth configuration: ${missingEnv.join(', ')}`);
   }
+
+  const googleCallbackUrl = getGoogleCallbackUrl();
 
   const tokenResponse = await axios.post(
     'https://oauth2.googleapis.com/token',
@@ -486,7 +526,7 @@ const getGoogleProfileFromCode = async (code, state) => {
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: process.env.GOOGLE_CALLBACK_URL,
+      redirect_uri: googleCallbackUrl,
       grant_type: 'authorization_code',
     }).toString(),
     {
@@ -615,6 +655,7 @@ module.exports = {
   loginUser,
   requestPasswordReset,
   resetPassword,
+  getGoogleCallbackUrl,
   getGoogleAuthorizationUrl,
   getGoogleProfileFromCode,
   loginWithGoogleProfile,

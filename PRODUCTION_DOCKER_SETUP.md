@@ -36,6 +36,7 @@ DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE?schema=public
 JWT_SECRET=secret-production-yang-panjang
 CORS_ORIGINS=https://domain-frontend-kamu.com
 FRONTEND_URL=https://domain-frontend-kamu.com
+BACKEND_URL=https://domain-backend-kamu.com
 ```
 
 Jangan gunakan:
@@ -93,6 +94,8 @@ DATABASE_URL
 JWT_SECRET
 CORS_ORIGINS
 FRONTEND_URL
+BACKEND_URL
+GOOGLE_CLIENT_ID dan GOOGLE_CLIENT_SECRET jika Google OAuth dipakai
 AI_BASE_URL atau AI_PREDICT_URL/AI_GRADCAM_URL jika fitur scan AI dipakai
 GEMMA_API_URL jika fitur chatbot dipakai
 SMTP_* jika fitur email dipakai
