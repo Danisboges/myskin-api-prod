@@ -4,28 +4,44 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { publishConsultationEvent } = require('../services/consultation-events.service');
 
+const AI_BOT_SYSTEM_ID = 'GEMMA_AI_BOT_SYSTEM';
 const AI_BOT_NAME = 'Gemma AI';
-const AI_BOT_EMAIL = 'gemma.ai@myskin.local';
+const AI_BOT_EMAIL = 'gemma.ai.system@myskin.local';
+const AI_BOT_AVATAR_URL = `https://api.dicebear.com/9.x/bottts-neutral/svg?seed=${encodeURIComponent(AI_BOT_SYSTEM_ID)}`;
 const GEMMA_API_URL = process.env.GEMMA_API_URL?.trim() || '';
 const GEMMA_API_TIMEOUT_MS = Number(process.env.GEMMA_API_TIMEOUT_MS || 60000);
 
-const mapChatMessage = (chatMessage) => ({
-  id: chatMessage.id,
-  message: chatMessage.message,
-  sender: chatMessage.sender
-    ? {
-      id: chatMessage.sender.id,
-      name: chatMessage.sender.name,
-      role: chatMessage.sender.role,
-      avatarUrl: chatMessage.sender.avatarUrl
-    }
-    : null,
-  senderId: chatMessage.senderId,
-  senderRole: chatMessage.sender?.role || null,
-  timestamp: chatMessage.timestamp,
-  createdAt: chatMessage.timestamp,
-  consultationId: chatMessage.consultationId
+const buildAiBotSender = () => ({
+  id: AI_BOT_SYSTEM_ID,
+  name: AI_BOT_NAME,
+  role: 'assistant',
+  avatarUrl: AI_BOT_AVATAR_URL
 });
+
+const mapChatMessage = (chatMessage) => {
+  const isAiBotMessage = chatMessage.senderId === AI_BOT_SYSTEM_ID;
+  const sender = isAiBotMessage
+    ? buildAiBotSender()
+    : chatMessage.sender
+      ? {
+        id: chatMessage.sender.id,
+        name: chatMessage.sender.name,
+        role: chatMessage.sender.role,
+        avatarUrl: chatMessage.sender.avatarUrl
+      }
+      : null;
+
+  return {
+    id: chatMessage.id,
+    message: chatMessage.message,
+    sender,
+    senderId: chatMessage.senderId,
+    senderRole: isAiBotMessage ? 'assistant' : chatMessage.sender?.role || null,
+    timestamp: chatMessage.timestamp,
+    createdAt: chatMessage.timestamp,
+    consultationId: chatMessage.consultationId
+  };
+};
 
 const validatePatientConsultation = (consultation, userId) => {
   if (!consultation) {
@@ -37,16 +53,9 @@ const validatePatientConsultation = (consultation, userId) => {
   }
 };
 
-const validateAiConsultation = (consultation) => {
-  const configuredAiBotUserId = process.env.AI_BOT_USER_ID?.trim();
-  if (configuredAiBotUserId && consultation.doctorId !== configuredAiBotUserId) {
-    throw new Error('Unauthorized: This consultation is not assigned to Gemma AI');
-  }
-};
-
-const getOrCreateInternalAiBotUser = async () => {
+const ensureAiBotSystemUser = async () => {
   const existingBot = await prisma.user.findUnique({
-    where: { email: AI_BOT_EMAIL },
+    where: { id: AI_BOT_SYSTEM_ID },
     select: { id: true }
   });
 
@@ -57,6 +66,7 @@ const getOrCreateInternalAiBotUser = async () => {
   try {
     return await prisma.user.create({
       data: {
+        id: AI_BOT_SYSTEM_ID,
         name: AI_BOT_NAME,
         email: AI_BOT_EMAIL,
         password: await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10),
@@ -68,7 +78,7 @@ const getOrCreateInternalAiBotUser = async () => {
   } catch (error) {
     if (error.code === 'P2002') {
       return prisma.user.findUnique({
-        where: { email: AI_BOT_EMAIL },
+        where: { id: AI_BOT_SYSTEM_ID },
         select: { id: true }
       });
     }
@@ -77,15 +87,7 @@ const getOrCreateInternalAiBotUser = async () => {
   }
 };
 
-const getAiBotUserId = async () => {
-  const configuredAiBotUserId = process.env.AI_BOT_USER_ID?.trim();
-  if (configuredAiBotUserId) {
-    return configuredAiBotUserId;
-  }
-
-  const aiBotUser = await getOrCreateInternalAiBotUser();
-  return aiBotUser.id;
-};
+const getAiBotUserId = () => AI_BOT_SYSTEM_ID;
 
 const formatConfidence = (confidence) => {
   if (typeof confidence !== 'number') {
@@ -240,7 +242,6 @@ const getAiChatHistory = async (userId, consultationId) => {
   });
 
   validatePatientConsultation(consultation, userId);
-  validateAiConsultation(consultation);
 
   const messages = await prisma.chatMessage.findMany({
     where: { consultationId },
@@ -268,13 +269,12 @@ const sendAiMessage = async (userId, consultationId, messageContent) => {
   });
 
   validatePatientConsultation(consultation, userId);
-  validateAiConsultation(consultation);
 
   if (consultation.status !== 'OPEN') {
     throw new Error('Cannot send messages in a closed consultation');
   }
 
-  const aiBotUserId = await getAiBotUserId();
+  const aiBotUserId = getAiBotUserId();
 
   const userMessage = await prisma.chatMessage.create({
     data: {
@@ -319,6 +319,8 @@ const sendAiMessage = async (userId, consultationId, messageContent) => {
     if (!aiReplyContent) {
       throw new Error('Gemma AI did not return a response');
     }
+
+    await ensureAiBotSystemUser();
 
     const aiMessage = await prisma.chatMessage.create({
       data: {

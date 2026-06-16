@@ -11,6 +11,9 @@ delete process.env.AI_BOT_USER_ID;
 const prisma = require('../src/config/prisma');
 const aiConsultationService = require('../src/services/ai-consultation.service');
 
+const AI_BOT_SYSTEM_ID = 'GEMMA_AI_BOT_SYSTEM';
+const AI_BOT_EMAIL = 'gemma.ai.system@myskin.local';
+
 const created = {
   userIds: [],
   scanIds: [],
@@ -24,7 +27,7 @@ const stamp = () => `${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
 
 test.before(async () => {
   existingBotBeforeTests = await prisma.user.findUnique({
-    where: { email: 'gemma.ai@myskin.local' },
+    where: { id: AI_BOT_SYSTEM_ID },
     select: { id: true },
   });
 });
@@ -64,7 +67,7 @@ test.after(async () => {
 
   if (!existingBotBeforeTests) {
     const bot = await prisma.user.findUnique({
-      where: { email: 'gemma.ai@myskin.local' },
+      where: { id: AI_BOT_SYSTEM_ID },
       select: { id: true },
     });
 
@@ -147,7 +150,7 @@ const createConsultationFixture = async () => {
   return { patient, doctor, consultation };
 };
 
-test('sendAiMessage auto-creates internal Gemma AI sender when AI_BOT_USER_ID is not configured', async () => {
+test('sendAiMessage uses static Gemma AI system sender in a human doctor consultation room', async () => {
   const { patient, doctor, consultation } = await createConsultationFixture();
 
   const aiMessage = await aiConsultationService.sendAiMessage(
@@ -157,18 +160,32 @@ test('sendAiMessage auto-creates internal Gemma AI sender when AI_BOT_USER_ID is
   );
 
   assert.equal(aiMessage.message, 'Ini penjelasan AI untuk hasil scan Anda.');
+  assert.equal(aiMessage.senderId, AI_BOT_SYSTEM_ID);
   assert.notEqual(aiMessage.senderId, doctor.id);
+  assert.equal(consultation.doctorId, doctor.id);
   assert.equal(aiMessage.sender.name, 'Gemma AI');
+  assert.equal(aiMessage.sender.role, 'assistant');
+  assert.match(aiMessage.sender.avatarUrl, /dicebear\.com\/9\.x\/bottts-neutral\/svg/);
+  assert.equal(aiMessage.senderRole, 'assistant');
   assert.equal(aiMessage.sender.email, undefined);
 
   const bot = await prisma.user.findUnique({
-    where: { email: 'gemma.ai@myskin.local' },
-    select: { id: true, name: true, role: true, status: true },
+    where: { id: AI_BOT_SYSTEM_ID },
+    select: { id: true, email: true, name: true, role: true, status: true },
   });
 
   assert.ok(bot);
+  assert.equal(bot.id, AI_BOT_SYSTEM_ID);
+  assert.equal(bot.email, AI_BOT_EMAIL);
   assert.equal(bot.name, 'Gemma AI');
   assert.equal(bot.role, 'doctor');
   assert.equal(bot.status, 'active');
-  assert.equal(aiMessage.senderId, bot.id);
+
+  const history = await aiConsultationService.getAiChatHistory(patient.id, consultation.id);
+  const mappedAiMessage = history.find((chatMessage) => chatMessage.senderId === AI_BOT_SYSTEM_ID);
+
+  assert.ok(mappedAiMessage);
+  assert.equal(mappedAiMessage.sender.name, 'Gemma AI');
+  assert.equal(mappedAiMessage.sender.role, 'assistant');
+  assert.equal(mappedAiMessage.senderRole, 'assistant');
 });
