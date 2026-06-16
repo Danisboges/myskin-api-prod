@@ -142,6 +142,7 @@ const buildSystemPrompt = (scan = {}) => {
     '- Jawab ringkas, empatik, dan relevan dengan konteks scan di atas.',
     '- maksimal menggunakan 50 general words, hindari istilah medis yang rumit, dan gunakan bahasa yang mudah dipahami.',
     '- berikan saran dengan singkat dan mudah dipahami oleh user, tetapi menyangkut semua aspek yang relevan dengan hasil scan, termasuk edukasi, langkah aman berikutnya, dan tanda bahaya.',
+    '- usahankan agar menjawab tidak lebih dari waktu 2 menit',
   ].join('\n');
 };
 
