@@ -66,6 +66,10 @@ const formatDoctorForAdmin = (doctor) => ({
   registrationDate: formatDateTime(doctor.joinedAt),
   joinedAt: formatDateTime(doctor.joinedAt),
   status: doctor.verificationStatus,
+  verificationStatus: doctor.verificationStatus,
+  practitionerStatus: {
+    status: doctor.verificationStatus,
+  },
   patientLoad: doctor.caseReviews?.length || 0,
 });
 
@@ -1662,26 +1666,90 @@ const getDoctorVerificationRequests = async (doctorId) => {
 const approveDoctorRequest = async (doctorId, note) => {
   const doctor = await findDoctorProfileById(doctorId);
 
-  await prisma.doctorProfile.update({
-    where: { id: doctor.id },
-    data: { verificationStatus: "verified" },
+  const updatedDoctor = await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: doctor.userId },
+      data: { status: "active" },
+    });
+
+    return tx.doctorProfile.update({
+      where: { id: doctor.id },
+      data: { verificationStatus: "verified" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            status: true,
+            gender: true,
+            phone: true,
+            birthDate: true,
+            avatarUrl: true,
+          },
+        },
+        caseReviews: {
+          select: { id: true },
+        },
+        clinic: {
+          select: {
+            clinicId: true,
+            name: true,
+          },
+        },
+      },
+    });
   });
 
   return {
     message: "Doctor approval request accepted",
+    data: formatDoctorForAdmin(updatedDoctor),
   };
 };
 
 const rejectDoctorRequest = async (doctorId, reason) => {
   const doctor = await findDoctorProfileById(doctorId);
 
-  await prisma.doctorProfile.update({
-    where: { id: doctor.id },
-    data: { verificationStatus: "rejected" },
+  const updatedDoctor = await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: doctor.userId },
+      data: { status: "inactive" },
+    });
+
+    return tx.doctorProfile.update({
+      where: { id: doctor.id },
+      data: { verificationStatus: "rejected" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            status: true,
+            gender: true,
+            phone: true,
+            birthDate: true,
+            avatarUrl: true,
+          },
+        },
+        caseReviews: {
+          select: { id: true },
+        },
+        clinic: {
+          select: {
+            clinicId: true,
+            name: true,
+          },
+        },
+      },
+    });
   });
 
   return {
     message: "Doctor approval request rejected",
+    data: formatDoctorForAdmin(updatedDoctor),
   };
 };
 

@@ -1755,11 +1755,15 @@ const getDoctorProfile = async (userId) => {
     }
 
     return {
+      id: doctorProfile.id,
       doctorId: doctorProfile.id,
       fullName: user.name,
       email: user.email,
       gender: user.gender,
       role: user.role,
+      status: doctorProfile.verificationStatus,
+      verificationStatus: doctorProfile.verificationStatus,
+      userStatus: user.status,
       phoneNumber: user.phone,
       birthDate: user.birthDate ? user.birthDate.toISOString().split('T')[0] : null,
       joinedAt: doctorProfile.joinedAt.toISOString().split('T')[0],
@@ -1767,7 +1771,7 @@ const getDoctorProfile = async (userId) => {
       specialization: doctorProfile.specialization || 'Dermatology',
       practitionerStatus: {
         status: doctorProfile.verificationStatus,
-        label: doctorProfile.verificationStatus === 'verified' ? 'Verified Doctor' : 'Pending Verification',
+        label: ['verified', 'approved'].includes(doctorProfile.verificationStatus) ? 'Verified Doctor' : 'Pending Verification',
         description: `Your medical license and clinical specialization have been ${doctorProfile.verificationStatus} for Melanoma AI analysis.`
       }
     };

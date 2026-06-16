@@ -265,18 +265,7 @@ const loginUser = async (email, password, context = {}) => {
     throw createMaintenanceError();
   }
   
-  const token = createAuthToken(user);
-
-  return {
-    token,
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    ...(user.role === 'doctor' && {
-      verificationStatus: user.doctorProfile.verificationStatus,
-    }),
-  };
+  return formatLoginResult(user);
 };
 
 const assertUserIsActive = (status) => {
@@ -292,6 +281,7 @@ const assertUserIsActive = (status) => {
 const userDataForLoginInclude = () => ({
   doctorProfile: {
     select: {
+      id: true,
       verificationStatus: true,
     },
   },
@@ -300,7 +290,7 @@ const userDataForLoginInclude = () => ({
 const assertDoctorCanLogin = (verificationStatus) => {
   const normalizedStatus = verificationStatus || 'pending';
 
-  if (normalizedStatus === 'verified') {
+  if (['verified', 'approved'].includes(normalizedStatus)) {
     return normalizedStatus;
   }
 
@@ -318,6 +308,52 @@ const createAuthToken = (user) => jwt.sign(
   process.env.JWT_SECRET,
   { expiresIn: '24h' }
 );
+
+const formatDoctorLoginProfile = (doctorProfile) => {
+  if (!doctorProfile) {
+    return null;
+  }
+
+  const status = doctorProfile.verificationStatus;
+
+  return {
+    id: doctorProfile.id,
+    status,
+    verificationStatus: status,
+    practitionerStatus: {
+      status,
+    },
+  };
+};
+
+const formatLoginResult = (user) => {
+  const doctorProfile = formatDoctorLoginProfile(user.doctorProfile);
+  const token = createAuthToken(user);
+
+  return {
+    token,
+    accessToken: token,
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    status: user.status,
+    ...(user.role === 'doctor' && {
+      verificationStatus: doctorProfile.verificationStatus,
+      doctorProfile,
+    }),
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      ...(user.role === 'doctor' && {
+        doctorProfile,
+      }),
+    },
+  };
+};
 
 const hashPasswordResetToken = (token) => (
   crypto.createHash('sha256').update(token).digest('hex')
@@ -612,16 +648,7 @@ const loginWithGoogleProfile = async ({ email, name, googleId }) => {
     throw createMaintenanceError();
   }
 
-  return {
-    token: createAuthToken(user),
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    ...(user.role === 'doctor' && {
-      verificationStatus: user.doctorProfile.verificationStatus,
-    }),
-  };
+  return formatLoginResult(user);
 };
 
 // Tambahkan fungsi lain agar konsisten dengan gaya yang Anda minta

@@ -265,6 +265,17 @@ test('verified doctor can login and receives verificationStatus', async () => {
   assert.equal(typeof result.token, 'string');
 });
 
+test('approved doctor can login for backward-compatible verification status', async () => {
+  const doctor = await createDoctor('approved', 'active');
+  const result = await loginUser(doctor.email, doctor.password);
+
+  assert.equal(result.role, 'doctor');
+  assert.equal(result.verificationStatus, 'approved');
+  assert.equal(result.doctorProfile.status, 'approved');
+  assert.equal(result.doctorProfile.practitionerStatus.status, 'approved');
+  assert.equal(typeof result.token, 'string');
+});
+
 test('pending doctor is rejected before token issuance', async () => {
   const doctor = await createDoctor('pending');
 
