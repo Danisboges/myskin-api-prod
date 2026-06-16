@@ -17,9 +17,11 @@ const clinicRequestRoutes = require('./src/routes/clinic-request.route');
 const { maintenanceModeMiddleware } = require('./src/middlewares/maintenance.middleware');
 const { createCriticalSystemAlert } = require('./src/services/admin-notification.service');
 const systemLogService = require('./src/services/system-log.service');
+const { assetUrlResponseMiddleware } = require('./src/utils/asset-url.util');
 
 const app = express();
 const adminUiDir = path.join(__dirname, 'public', 'admin');
+app.set('trust proxy', 1);
 
 const defaultAllowedOrigins = [
   'http://localhost:3000',
@@ -51,9 +53,9 @@ const corsOptions = {
 };
 
 // 1. BUAT FOLDER UPLOADS OTOMATIS (Mencegah error ENOENT)
-const uploadDir = path.join(__dirname, 'uploads');
+const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
+  fs.mkdirSync(uploadDir, { recursive: true });
 }
 
 const uploadStaticOptions = {
@@ -66,6 +68,7 @@ const uploadStaticOptions = {
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use(assetUrlResponseMiddleware);
 
 // 3. STATIC FILES
 app.use('/uploads', express.static(uploadDir, uploadStaticOptions));

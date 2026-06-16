@@ -137,8 +137,6 @@ const ACTIVE_VERIFICATION_REQUEST_STATUSES = [
   'pending',
   'pending_review',
   'under_review',
-  'in_review',
-  'submitted',
 ];
 const ACTIVE_CASE_REVIEW_STATUSES = ['pending_review', 'under_review'];
 const getPatientAvatarUrl = (user) => user?.avatarUrl || null;
@@ -249,6 +247,8 @@ const getAssignedCases = async (userId, filters = {}) => {
       status: c.reviewStatus,
       type: 'case_review',
       scanImageUrl: c.scan.imageUrl,
+      imageUrl: c.scan.imageUrl,
+      gradcamUrl: c.scan.gradcamUrl,
       gradcamImageUrl: c.scan.gradcamUrl,
       annotatedImageUrl: c.scan.annotatedImageUrl,
       annotationImageUrl: c.scan.annotatedImageUrl,
@@ -284,6 +284,7 @@ const getAssignedCases = async (userId, filters = {}) => {
         imageUrl: requestScan?.imageUrl || null,
         bodySite: requestScan?.bodySite || null,
         complaint: requestScan?.complaint || null,
+        gradcamUrl: requestScan?.gradcamUrl || null,
         gradcamImageUrl: requestScan?.gradcamUrl || null,
         annotatedImageUrl: requestScan?.annotatedImageUrl || null,
         annotationImageUrl: requestScan?.annotatedImageUrl || null,
@@ -369,11 +370,20 @@ const formatCaseDetail = ({ caseId, requestId = null, scan, status, receivedAt, 
     id: scan.patientId,
     name: scan.patient.user.name,
     age: calculatePatientAge(scan.patient.user.birthDate),
-    gender: scan.patient.user.gender
+    gender: scan.patient.user.gender,
+    avatarUrl: getPatientAvatarUrl(scan.patient.user)
   },
+  imageUrl: scan.imageUrl,
+  scanImageUrl: scan.imageUrl,
+  gradcamUrl: scan.gradcamUrl,
+  gradcamImageUrl: scan.gradcamUrl,
+  annotatedImageUrl: scan.annotatedImageUrl,
+  annotationImageUrl: scan.annotatedImageUrl,
   clinicalImage: {
     imageUrl: scan.imageUrl,
+    scanImageUrl: scan.imageUrl,
     annotatedImageUrl: scan.annotatedImageUrl,
+    annotationImageUrl: scan.annotatedImageUrl,
     zoom: scan.caseReview?.zoom || '4.0x',
     light: scan.caseReview?.light || 'Polarized',
     bodySite: scan.bodySite || 'unspecified',
@@ -444,13 +454,6 @@ const getVerificationRequestWithScan = async (requestIdentifier) => prisma.verif
     patient: {
       include: {
         user: { select: { name: true, gender: true, birthDate: true, avatarUrl: true } },
-        scans: {
-          orderBy: { uploadedAt: 'desc' },
-          take: 1,
-          include: {
-            caseReview: true,
-          },
-        },
       },
     },
   },
@@ -483,11 +486,7 @@ const resolveDoctorCaseIdentifier = async (identifier) => {
     }
 
     if (!scan) {
-      scan = verificationRequest.patient.scans[0] || null;
-    }
-
-    if (!scan) {
-      throw new Error('Case not found');
+      throw new Error('Case scan not found');
     }
 
     scan.patient = verificationRequest.patient;
@@ -503,7 +502,12 @@ const resolveDoctorCaseIdentifier = async (identifier) => {
   const scan = await getScanDetailByIdentifier(normalizedIdentifier);
   if (scan) {
     const request = await prisma.verificationRequest.findFirst({
-      where: { scanId: scan.scanId },
+      where: {
+        OR: [
+          { scanId: scan.id },
+          { scanId: scan.scanId },
+        ],
+      },
       orderBy: { submittedAt: 'desc' },
     });
 
@@ -565,11 +569,7 @@ const getVerificationRequestCaseDetail = async (requestId) => {
   }
 
   if (!scan) {
-    scan = request.patient.scans[0] || null;
-  }
-
-  if (!scan) {
-    throw new Error('Case not found');
+    throw new Error('Case scan not found');
   }
 
   scan.patient = request.patient;

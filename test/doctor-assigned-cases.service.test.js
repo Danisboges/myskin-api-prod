@@ -241,6 +241,27 @@ test("getAssignedCases includes only active verification request statuses", asyn
     suffix: "-pending",
     status: "pending",
   });
+  const pendingReviewRequest = await createVerificationRequestForScan({
+    doctor,
+    patient,
+    scan,
+    suffix: "-pending-review",
+    status: "pending_review",
+  });
+  const underReviewRequest = await createVerificationRequestForScan({
+    doctor,
+    patient,
+    scan,
+    suffix: "-under-review",
+    status: "under_review",
+  });
+  const submittedRequest = await createVerificationRequestForScan({
+    doctor,
+    patient,
+    scan,
+    suffix: "-submitted",
+    status: "submitted",
+  });
   const approvedRequest = await createVerificationRequestForScan({
     doctor,
     patient,
@@ -255,13 +276,32 @@ test("getAssignedCases includes only active verification request statuses", asyn
     suffix: "-rejected",
     status: "rejected",
   });
+  const completedRequest = await createVerificationRequestForScan({
+    doctor,
+    patient,
+    scan,
+    suffix: "-completed",
+    status: "completed",
+  });
+  const resolvedRequest = await createVerificationRequestForScan({
+    doctor,
+    patient,
+    scan,
+    suffix: "-resolved",
+    status: "resolved",
+  });
 
   const cases = await getAssignedCases(doctor.id);
   const requestIds = cases.map((item) => item.requestId).filter(Boolean);
 
   assert.ok(requestIds.includes(pendingRequest.requestId));
+  assert.ok(requestIds.includes(pendingReviewRequest.requestId));
+  assert.ok(requestIds.includes(underReviewRequest.requestId));
+  assert.ok(!requestIds.includes(submittedRequest.requestId));
   assert.ok(!requestIds.includes(approvedRequest.requestId));
   assert.ok(!requestIds.includes(rejectedRequest.requestId));
+  assert.ok(!requestIds.includes(completedRequest.requestId));
+  assert.ok(!requestIds.includes(resolvedRequest.requestId));
 });
 
 test("getAssignedCases removes verification request after approve or reject", async () => {
