@@ -1,0 +1,93 @@
+{
+  "id": "d3be78c2-f11a-4ad5-b2ff-25e06e43f001",
+  "name": "MySkin Chat and Chatbot Environment",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3300",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "productionBaseUrl",
+      "value": "https://myskin-api-prod-production.up.railway.app",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "patientEmail",
+      "value": "sarah.johnson@myskin.local",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "patientPassword",
+      "value": "password123",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "doctorEmail",
+      "value": "elena.aris@myskin.local",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "doctorPassword",
+      "value": "password123",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "patientToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "doctorToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "patientUserId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "doctorUserId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "doctorId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "scanId",
+      "value": "SCAN-SARAH-MAY-2026",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "consultationId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "messageId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment",
+  "_postman_exported_at": "2026-06-16T00:00:00.000Z",
+  "_postman_exported_using": "Codex"
+}

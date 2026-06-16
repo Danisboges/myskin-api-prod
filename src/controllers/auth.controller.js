@@ -43,7 +43,7 @@ const login = async (req, res) => {
   } catch (err) {
     console.error("Gagal Login:", err.message);
     const statusCode = err.status || 401;
-    if (err.code === "MAINTENANCE_MODE" && err.response) {
+    if (err.status === 503 && err.response) {
       return res.status(statusCode).json(err.response);
     }
 

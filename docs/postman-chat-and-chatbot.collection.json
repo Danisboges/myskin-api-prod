@@ -1,0 +1,640 @@
+{
+  "info": {
+    "_postman_id": "b7f62e5f-7e94-4f70-b8e5-1b4c6a4db001",
+    "name": "MySkin API - Chat and AI Chatbot",
+    "description": "Postman documentation for patient-doctor chat consultation and patient AI chatbot endpoints. Import this collection with docs/postman-chat-and-chatbot.environment.json, then run Auth requests first to save tokens.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3300", "type": "string" },
+    { "key": "patientEmail", "value": "sarah.johnson@myskin.local", "type": "string" },
+    { "key": "patientPassword", "value": "password123", "type": "string" },
+    { "key": "doctorEmail", "value": "elena.aris@myskin.local", "type": "string" },
+    { "key": "doctorPassword", "value": "password123", "type": "string" },
+    { "key": "patientToken", "value": "", "type": "string" },
+    { "key": "doctorToken", "value": "", "type": "string" },
+    { "key": "doctorId", "value": "", "type": "string" },
+    { "key": "scanId", "value": "SCAN-SARAH-MAY-2026", "type": "string" },
+    { "key": "consultationId", "value": "", "type": "string" },
+    { "key": "messageId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "README",
+      "description": "Recommended flow: 1. Login Patient, 2. Login Doctor, 3. Get Doctor Profile, 4. set scanId, 5. Initiate Consultation, 6. test chat/chatbot requests. Use production by changing baseUrl to your deployed backend, for example https://myskin-api-prod-production.up.railway.app.",
+      "item": [
+        {
+          "name": "Health / API Root Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": ["{{baseUrl}}"],
+              "path": [""]
+            },
+            "description": "Optional smoke check. This app may return 404 JSON for root; that still proves the backend responds."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login Patient",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('login patient success', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json.token) pm.collectionVariables.set('patientToken', json.token);",
+                  "if (json.id) pm.collectionVariables.set('patientUserId', json.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{patientEmail}}\",\n  \"password\": \"{{patientPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Login as patient. Saves response token to collection variable patientToken."
+          }
+        },
+        {
+          "name": "Login Doctor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('login doctor success', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json.token) pm.collectionVariables.set('doctorToken', json.token);",
+                  "if (json.id) pm.collectionVariables.set('doctorUserId', json.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{doctorEmail}}\",\n  \"password\": \"{{doctorPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Login as doctor. Saves response token to collection variable doctorToken."
+          }
+        },
+        {
+          "name": "Get Doctor Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('doctor profile loaded', function () {",
+                  "  pm.expect(pm.response.code).to.equal(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) pm.collectionVariables.set('doctorId', json.data.id);",
+                  "if (json.data && json.data.userId) pm.collectionVariables.set('doctorUserId', json.data.userId);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{doctorToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "doctor", "profile"]
+            },
+            "description": "Get doctor profile. The consultation initiate endpoint accepts DoctorProfile.id or doctor User.id."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Patient - Chat Consultation",
+      "item": [
+        {
+          "name": "Initiate Consultation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('consultation created or already exists handled', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201, 409]);",
+                  "});",
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data.id) pm.collectionVariables.set('consultationId', json.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"doctorId\": \"{{doctorId}}\",\n  \"scanId\": \"{{scanId}}\",\n  \"initialMessage\": \"Halo dokter, saya ingin konsultasi mengenai hasil scan kulit ini.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/initiate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "consultations", "initiate"]
+            },
+            "description": "Create a new patient-doctor consultation for one scan. Body requires doctorId, scanId, and initialMessage."
+          }
+        },
+        {
+          "name": "List Consultations",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations?page=1&limit=10&status=OPEN",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "consultations"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "status", "value": "OPEN" }
+              ]
+            },
+            "description": "List patient consultations. Optional query: page, limit, search, status=OPEN/CLOSED, startDate, endDate."
+          }
+        },
+        {
+          "name": "Get Consultation Detail",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "consultations", "{{consultationId}}"]
+            },
+            "description": "Get one consultation detail as patient."
+          }
+        },
+        {
+          "name": "Send Message",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('message sent', function () {",
+                  "  pm.expect(pm.response.code).to.equal(201);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) pm.collectionVariables.set('messageId', json.data.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "message", "value": "Dokter, apakah area ini perlu pemeriksaan langsung?", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}/messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "consultations", "{{consultationId}}", "messages"]
+            },
+            "description": "Send chat message as patient. Uses multipart/form-data so the same request can add attachments."
+          }
+        },
+        {
+          "name": "Send Message With Attachment",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "message", "value": "Saya lampirkan foto tambahan.", "type": "text" },
+                { "key": "attachments", "type": "file", "src": [] }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}/messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "consultations", "{{consultationId}}", "messages"]
+            },
+            "description": "Send message with up to 5 attachments, each max 10MB. In Postman, choose files for attachments."
+          }
+        },
+        {
+          "name": "Get Messages",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}/messages?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "consultations", "{{consultationId}}", "messages"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Get paginated chat messages as patient."
+          }
+        },
+        {
+          "name": "Mark Specific Messages As Read",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"messageIds\": [\"{{messageId}}\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}/read",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "consultations", "{{consultationId}}", "read"]
+            },
+            "description": "Mark selected messages as read. messageIds must be an array of message IDs."
+          }
+        },
+        {
+          "name": "Mark All Messages As Read",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}/read-all",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "consultations", "{{consultationId}}", "read-all"]
+            },
+            "description": "Mark all messages from the other participant as read."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Doctor - Chat Consultation",
+      "item": [
+        {
+          "name": "List Consultations",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{doctorToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations?page=1&limit=10&status=OPEN",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "doctor", "consultations"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "status", "value": "OPEN" }
+              ]
+            },
+            "description": "List consultations assigned to the authenticated doctor."
+          }
+        },
+        {
+          "name": "Get Consultation Detail",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{doctorToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "doctor", "consultations", "{{consultationId}}"]
+            },
+            "description": "Get one consultation detail as assigned doctor."
+          }
+        },
+        {
+          "name": "Send Message",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{doctorToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "message", "value": "Terima kasih. Saya akan review hasil scan dan riwayatnya.", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}/messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "doctor", "consultations", "{{consultationId}}", "messages"]
+            },
+            "description": "Send chat message as doctor."
+          }
+        },
+        {
+          "name": "Get Messages",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{doctorToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}/messages?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "doctor", "consultations", "{{consultationId}}", "messages"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Get paginated chat messages as doctor."
+          }
+        },
+        {
+          "name": "Get AI Analysis Detail",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{doctorToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}/ai-analysis",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "doctor", "consultations", "{{consultationId}}", "ai-analysis"]
+            },
+            "description": "Get scan AI analysis details for this consultation."
+          }
+        },
+        {
+          "name": "Create Prescription",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{doctorToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicationName\": \"Hydrocortisone 1% cream\",\n  \"dosage\": \"Oles tipis\",\n  \"frequency\": \"2 kali sehari\",\n  \"duration\": \"5 hari\",\n  \"notes\": \"Hentikan jika iritasi memburuk.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}/prescriptions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "doctor", "consultations", "{{consultationId}}", "prescriptions"]
+            },
+            "description": "Create prescription in consultation. Required: medicationName."
+          }
+        },
+        {
+          "name": "Close Consultation",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{doctorToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"caseDisposition\": \"case_resolved\",\n  \"finalClinicalNotes\": \"Lesi tampak stabil. Tidak ada tanda kegawatan dari informasi yang tersedia.\",\n  \"diagnosis\": \"Benign nevus\",\n  \"recommendation\": \"Pantau perubahan ukuran, warna, bentuk, atau perdarahan. Kontrol ulang jika berubah.\",\n  \"notes\": \"Follow up mandiri dengan foto berkala.\",\n  \"emailClinicalSummary\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}/close",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "doctor", "consultations", "{{consultationId}}", "close"]
+            },
+            "description": "Close consultation and generate report. Required: caseDisposition and finalClinicalNotes. caseDisposition allowed: case_resolved, referred_to_specialist, biopsy_scheduled."
+          }
+        },
+        {
+          "name": "Delete Closed Consultation",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{doctorToken}}", "type": "string" }]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "doctor", "consultations", "{{consultationId}}"]
+            },
+            "description": "Delete consultation. Only allowed after consultation status is CLOSED."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Patient - AI Chatbot",
+      "description": "AI chatbot is mounted under /api/v1/patient/ai-consultations and uses an existing consultationId as context.",
+      "item": [
+        {
+          "name": "Get AI Chat History",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/ai-consultations/{{consultationId}}/messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "ai-consultations", "{{consultationId}}", "messages"]
+            },
+            "description": "Get Gemma AI chat history for the authenticated patient and consultation context."
+          }
+        },
+        {
+          "name": "Send Message To AI",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Tolong jelaskan hasil scan saya dengan bahasa sederhana. Apa langkah aman berikutnya?\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/ai-consultations/{{consultationId}}/messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "ai-consultations", "{{consultationId}}", "messages"]
+            },
+            "description": "Send message to Gemma AI chatbot. Requires GEMMA_API_URL configured on backend."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Real-time Events",
+      "item": [
+        {
+          "name": "Patient SSE Stream",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "text/event-stream" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}/events",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "consultations", "{{consultationId}}", "events"]
+            },
+            "description": "Open Server-Sent Events stream for consultation updates. Postman may keep this request open."
+          }
+        },
+        {
+          "name": "Doctor SSE Stream",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{doctorToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "text/event-stream" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}/events",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "doctor", "consultations", "{{consultationId}}", "events"]
+            },
+            "description": "Open Server-Sent Events stream for the doctor side."
+          }
+        },
+        {
+          "name": "Patient Typing Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{patientToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isTyping\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/patient/consultations/{{consultationId}}/typing",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "patient", "consultations", "{{consultationId}}", "typing"]
+            },
+            "description": "Publish patient typing status."
+          }
+        },
+        {
+          "name": "Doctor Typing Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{doctorToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isTyping\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/doctor/consultations/{{consultationId}}/typing",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "doctor", "consultations", "{{consultationId}}", "typing"]
+            },
+            "description": "Publish doctor typing status."
+          }
+        }
+      ]
+    }
+  ]
+}

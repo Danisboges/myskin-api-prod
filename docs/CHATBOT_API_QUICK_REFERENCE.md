@@ -2,18 +2,27 @@
 
 ## 📁 Documentation Files
 
-### 1. **Postman Collection** (For API Testing)
+### 1. **Postman Collection** (Recommended for API Testing)
+- **File**: `postman-chat-and-chatbot.collection.json`
+- **Environment**: `postman-chat-and-chatbot.environment.json`
+- **Contains**: Patient-doctor chat consultation, AI chatbot, read receipts, typing status, SSE, prescriptions, and close/delete consultation flow.
+- **How to Use**:
+  1. Open Postman → Import → Select both files
+  2. Update `{{baseUrl}}` based on your environment
+  3. Run endpoints in order from the collection
+
+### 2. **Full Postman Collection** (Older Complete Collection)
 - **File**: `postman-chatbot-api-complete.collection.json`
 - **How to Use**:
   1. Open Postman → Import → Select this file
   2. Update `{{baseUrl}}` variable based on your environment
   3. Run endpoints in order from the collection
 
-### 2. **Full Documentation** (Technical Details)
+### 3. **Full Documentation** (Technical Details)
 - **File**: `CHATBOT_API_DOCUMENTATION.md`
 - **Contains**: Complete API reference, data models, examples, best practices
 
-### 3. **Original Postman Collection** (Legacy)
+### 4. **Original Postman Collection** (Legacy)
 - **File**: `postman-chat-consultation.collection.json`
 - **Status**: Kept for backward compatibility
 

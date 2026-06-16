@@ -8,11 +8,14 @@ const EXCLUDED_PATHS = [
   "/uploads",
   "/admin",
   "/api/auth/login",
+  "/api/v1/auth/login",
   "/api/auth/register",
   "/api/auth/forgot-password",
   "/api/auth/reset-password",
   "/api/auth/google",
   "/api/auth/google/callback",
+  "/api/v1/auth/google",
+  "/api/v1/auth/google/callback",
 ];
 
 const isExcludedPath = (path) => (
@@ -34,7 +37,7 @@ const maintenanceModeMiddleware = async (req, res, next) => {
 
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return next();
+      return res.status(503).json(MAINTENANCE_RESPONSE);
     }
 
     try {
@@ -48,7 +51,7 @@ const maintenanceModeMiddleware = async (req, res, next) => {
 
       return res.status(503).json(MAINTENANCE_RESPONSE);
     } catch (err) {
-      return next();
+      return res.status(503).json(MAINTENANCE_RESPONSE);
     }
   } catch (err) {
     return next(err);

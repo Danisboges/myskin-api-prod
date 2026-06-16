@@ -78,6 +78,11 @@ const createReq = (user, path = "/api/v1/patient/profile") => ({
   },
 });
 
+const createPublicReq = (path = "/api/v1/patient/profile") => ({
+  path,
+  headers: {},
+});
+
 const setMaintenanceOverride = (value) => {
   process.env.MAINTENANCE_MODE_TEST_OVERRIDE = value ? "true" : "false";
 };
@@ -122,6 +127,49 @@ test("admin tetap bisa akses saat maintenance aktif", async () => {
   assert.equal(res.statusCode, null);
 });
 
+test("auth login dan google callback tidak diblokir middleware saat maintenance aktif", async () => {
+  setMaintenanceOverride(true);
+
+  for (const path of [
+    "/api/auth/login",
+    "/api/v1/auth/login",
+    "/api/auth/google",
+    "/api/auth/google/callback",
+    "/api/v1/auth/google",
+    "/api/v1/auth/google/callback",
+  ]) {
+    const req = createPublicReq(path);
+    const res = createRes();
+    let nextCalled = false;
+
+    await maintenanceModeMiddleware(req, res, () => {
+      nextCalled = true;
+    });
+
+    assert.equal(nextCalled, true);
+    assert.equal(res.statusCode, null);
+  }
+});
+
+test("request publik tanpa token ditolak 503 saat maintenance aktif", async () => {
+  setMaintenanceOverride(true);
+  const req = createPublicReq("/api/v1/patient/profile");
+  const res = createRes();
+  let nextCalled = false;
+
+  await maintenanceModeMiddleware(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 503);
+  assert.deepEqual(res.body, {
+    status: "error",
+    code: "maintenance_mode",
+    message: "System is under maintenance.",
+  });
+});
+
 test("doctor dan patient ditolak 503 saat maintenance aktif", async () => {
   setMaintenanceOverride(true);
   const doctor = await createUser("doctor");
@@ -140,8 +188,8 @@ test("doctor dan patient ditolak 503 saat maintenance aktif", async () => {
     assert.equal(res.statusCode, 503);
     assert.deepEqual(res.body, {
       status: "error",
-      code: "MAINTENANCE_MODE",
-      message: "System is under maintenance",
+      code: "maintenance_mode",
+      message: "System is under maintenance.",
     });
   }
 });
@@ -170,8 +218,8 @@ test("login non-admin ditolak 503 saat maintenance aktif, admin tetap bisa login
     loginUser(patient.email, "Str0ng!Pass2026"),
     (error) => {
       assert.equal(error.status, 503);
-      assert.equal(error.code, "MAINTENANCE_MODE");
-      assert.equal(error.message, "System is under maintenance");
+      assert.equal(error.code, "maintenance_mode");
+      assert.equal(error.message, "System is under maintenance.");
       return true;
     }
   );
@@ -197,8 +245,8 @@ test("login controller returns exact maintenance response", async () => {
   assert.equal(res.statusCode, 503);
   assert.deepEqual(res.body, {
     status: "error",
-    code: "MAINTENANCE_MODE",
-    message: "System is under maintenance",
+    code: "maintenance_mode",
+    message: "System is under maintenance.",
   });
 });
 

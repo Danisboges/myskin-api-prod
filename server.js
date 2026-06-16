@@ -91,6 +91,7 @@ app.use(maintenanceModeMiddleware);
 
 // 5. ROUTES
 app.use('/api/auth', userRoutes);
+app.use('/api/v1/auth', userRoutes);
 app.use('/api/guest', guestRoutes);
 // app.use('/api/detection', detectionRoutes);
 app.use("/api/user", userManagementRoutes);

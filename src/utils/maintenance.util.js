@@ -2,8 +2,8 @@ const prisma = require("../config/prisma");
 
 const MAINTENANCE_RESPONSE = {
   status: "error",
-  code: "MAINTENANCE_MODE",
-  message: "System is under maintenance",
+  code: "maintenance_mode",
+  message: "System is under maintenance.",
 };
 
 const isMaintenanceModeActive = async () => {
