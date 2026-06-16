@@ -20,17 +20,10 @@ const created = {
 };
 
 const originalAxiosPost = axios.post;
-let existingBotBeforeTests = null;
+const originalGemmaNumPredict = process.env.GEMMA_API_NUM_PREDICT;
 let capturedGemmaRequest = null;
 
 const stamp = () => `${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
-
-test.before(async () => {
-  existingBotBeforeTests = await prisma.user.findUnique({
-    where: { id: AI_BOT_SYSTEM_ID },
-    select: { id: true },
-  });
-});
 
 test.beforeEach(() => {
   capturedGemmaRequest = null;
@@ -47,6 +40,11 @@ test.beforeEach(() => {
 
 test.afterEach(() => {
   axios.post = originalAxiosPost;
+  if (originalGemmaNumPredict === undefined) {
+    delete process.env.GEMMA_API_NUM_PREDICT;
+  } else {
+    process.env.GEMMA_API_NUM_PREDICT = originalGemmaNumPredict;
+  }
 });
 
 test.after(async () => {
@@ -66,17 +64,6 @@ test.after(async () => {
     await prisma.scan.deleteMany({
       where: { id: { in: created.scanIds } },
     });
-  }
-
-  if (!existingBotBeforeTests) {
-    const bot = await prisma.user.findUnique({
-      where: { id: AI_BOT_SYSTEM_ID },
-      select: { id: true },
-    });
-
-    if (bot) {
-      await prisma.user.delete({ where: { id: bot.id } });
-    }
   }
 
   if (created.userIds.length > 0) {
@@ -225,5 +212,18 @@ test('sendAiMessage parses streamed Gemma response chunks', async () => {
   assert.equal(aiMessage.senderId, AI_BOT_SYSTEM_ID);
   assert.equal(capturedGemmaRequest[1].model, 'medgemma:4b');
   assert.equal(capturedGemmaRequest[1].stream, true);
+  assert.equal(capturedGemmaRequest[1].options.num_predict, 50);
+});
+
+test('sendAiMessage caps Gemma num_predict at 50', async () => {
+  const { patient, consultation } = await createConsultationFixture();
+  process.env.GEMMA_API_NUM_PREDICT = '200';
+
+  await aiConsultationService.sendAiMessage(
+    patient.id,
+    consultation.id,
+    'Tolong jelaskan singkat.'
+  );
+
   assert.equal(capturedGemmaRequest[1].options.num_predict, 50);
 });

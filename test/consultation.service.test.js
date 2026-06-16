@@ -25,16 +25,7 @@ const created = {
   attachmentPaths: [],
 };
 
-let existingAiBotBeforeTests = null;
-
 const stamp = () => `${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
-
-test.before(async () => {
-  existingAiBotBeforeTests = await prisma.user.findUnique({
-    where: { id: AI_BOT_SYSTEM_ID },
-    select: { id: true },
-  });
-});
 
 async function createUser(role, name) {
   const token = stamp();
@@ -158,12 +149,6 @@ test.after(async () => {
   if (created.scanIds.length > 0) {
     await prisma.scan.deleteMany({
       where: { id: { in: created.scanIds } },
-    });
-  }
-
-  if (!existingAiBotBeforeTests) {
-    await prisma.user.deleteMany({
-      where: { id: AI_BOT_SYSTEM_ID },
     });
   }
 

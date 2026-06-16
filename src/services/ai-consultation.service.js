@@ -9,11 +9,23 @@ const AI_BOT_NAME = 'Gemma AI';
 const AI_BOT_EMAIL = 'gemma.ai.system@myskin.local';
 const AI_BOT_AVATAR_URL = `https://api.dicebear.com/9.x/bottts-neutral/svg?seed=${encodeURIComponent(AI_BOT_SYSTEM_ID)}`;
 
+const GEMMA_MAX_NUM_PREDICT = 50;
+
+const getGemmaNumPredict = () => {
+  const configuredNumPredict = Number(process.env.GEMMA_API_NUM_PREDICT || GEMMA_MAX_NUM_PREDICT);
+
+  if (!Number.isFinite(configuredNumPredict) || configuredNumPredict <= 0) {
+    return GEMMA_MAX_NUM_PREDICT;
+  }
+  console.log();
+  return Math.min(Math.floor(configuredNumPredict), GEMMA_MAX_NUM_PREDICT);
+};
+
 const getGemmaApiConfig = () => ({
   url: process.env.GEMMA_API_URL?.trim() || '',
   timeoutMs: Number(process.env.GEMMA_API_TIMEOUT_MS || 120000),
   model: process.env.GEMMA_API_MODEL?.trim() || 'medgemma:4b',
-  numPredict: Number(process.env.GEMMA_API_NUM_PREDICT || 50)
+  numPredict: getGemmaNumPredict()
 });
 
 const buildAiBotSender = () => ({

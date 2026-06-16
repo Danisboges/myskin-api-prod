@@ -22,7 +22,6 @@ const created = {
 
 const originalAxiosPost = axios.post;
 const originalGemmaApiUrl = process.env.GEMMA_API_URL;
-let existingBotBeforeTests = null;
 
 const stamp = () => `${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
 
@@ -82,13 +81,6 @@ const request = async (app, { method, urlPath, token, body }) => new Promise((re
   });
 });
 
-test.before(async () => {
-  existingBotBeforeTests = await prisma.user.findUnique({
-    where: { id: AI_BOT_SYSTEM_ID },
-    select: { id: true },
-  });
-});
-
 test.afterEach(() => {
   axios.post = originalAxiosPost;
   if (originalGemmaApiUrl === undefined) {
@@ -114,12 +106,6 @@ test.after(async () => {
   if (created.scanIds.length > 0) {
     await prisma.scan.deleteMany({
       where: { id: { in: created.scanIds } },
-    });
-  }
-
-  if (!existingBotBeforeTests) {
-    await prisma.user.deleteMany({
-      where: { id: AI_BOT_SYSTEM_ID },
     });
   }
 
