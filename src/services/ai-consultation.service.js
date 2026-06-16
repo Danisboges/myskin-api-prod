@@ -11,7 +11,7 @@ const AI_BOT_AVATAR_URL = `https://api.dicebear.com/9.x/bottts-neutral/svg?seed=
 
 const getGemmaApiConfig = () => ({
   url: process.env.GEMMA_API_URL?.trim() || '',
-  timeoutMs: Number(process.env.GEMMA_API_TIMEOUT_MS || 60000),
+  timeoutMs: Number(process.env.GEMMA_API_TIMEOUT_MS || 75000),
   model: process.env.GEMMA_API_MODEL?.trim() || 'medgemma:4b',
   numPredict: Number(process.env.GEMMA_API_NUM_PREDICT || 50)
 });
