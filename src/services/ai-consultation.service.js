@@ -8,8 +8,13 @@ const AI_BOT_SYSTEM_ID = 'GEMMA_AI_BOT_SYSTEM';
 const AI_BOT_NAME = 'Gemma AI';
 const AI_BOT_EMAIL = 'gemma.ai.system@myskin.local';
 const AI_BOT_AVATAR_URL = `https://api.dicebear.com/9.x/bottts-neutral/svg?seed=${encodeURIComponent(AI_BOT_SYSTEM_ID)}`;
-const GEMMA_API_URL = process.env.GEMMA_API_URL?.trim() || '';
-const GEMMA_API_TIMEOUT_MS = Number(process.env.GEMMA_API_TIMEOUT_MS || 60000);
+
+const getGemmaApiConfig = () => ({
+  url: process.env.GEMMA_API_URL?.trim() || '',
+  timeoutMs: Number(process.env.GEMMA_API_TIMEOUT_MS || 60000),
+  model: process.env.GEMMA_API_MODEL?.trim() || 'medgemma:4b',
+  numPredict: Number(process.env.GEMMA_API_NUM_PREDICT || 50)
+});
 
 const buildAiBotSender = () => ({
   id: AI_BOT_SYSTEM_ID,
@@ -146,7 +151,26 @@ const buildGemmaPrompt = (systemPrompt, chatHistory) => {
 
 const extractGemmaReply = (data) => {
   if (typeof data === 'string') {
-    return data.trim();
+    const streamedReply = data
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          const parsedLine = JSON.parse(line);
+          if (typeof parsedLine.response === 'string') {
+            return parsedLine.response;
+          }
+
+          return extractGemmaReply(parsedLine);
+        } catch {
+          return '';
+        }
+      })
+      .join('')
+      .trim();
+
+    return streamedReply || data.trim();
   }
 
   if (!data || typeof data !== 'object') {
@@ -193,7 +217,9 @@ const extractGemmaReply = (data) => {
 };
 
 const requestGemmaReply = async ({ systemPrompt, chatHistory }) => {
-  if (!GEMMA_API_URL) {
+  const gemmaApiConfig = getGemmaApiConfig();
+
+  if (!gemmaApiConfig.url) {
     throw new Error('AI chatbot service is unavailable: GEMMA_API_URL is not configured');
   }
 
@@ -201,17 +227,17 @@ const requestGemmaReply = async ({ systemPrompt, chatHistory }) => {
 
   try {
     const response = await axios.post(
-      GEMMA_API_URL,
+      gemmaApiConfig.url,
       {
+        model: gemmaApiConfig.model,
         prompt,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...chatHistory,
-        ],
-        stream: false,
+        stream: true,
+        options: {
+          num_predict: gemmaApiConfig.numPredict
+        }
       },
       {
-        timeout: GEMMA_API_TIMEOUT_MS,
+        timeout: gemmaApiConfig.timeoutMs,
         headers: {
           'Content-Type': 'application/json',
         },

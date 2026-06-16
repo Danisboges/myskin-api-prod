@@ -14,6 +14,8 @@ const doctorNotificationService = require('./doctor-notification.service');
 
 const CHAT_ATTACHMENT_DIR = path.join(__dirname, '../../uploads/chat-attachments');
 const CHAT_ATTACHMENT_URL_PREFIX = '/uploads/chat-attachments';
+const AI_BOT_SYSTEM_ID = 'GEMMA_AI_BOT_SYSTEM';
+const AI_BOT_AVATAR_URL = `https://api.dicebear.com/9.x/bottts-neutral/svg?seed=${encodeURIComponent(AI_BOT_SYSTEM_ID)}`;
 
 const ensureAttachmentDir = () => {
   if (!fs.existsSync(CHAT_ATTACHMENT_DIR)) {
@@ -58,16 +60,34 @@ const mapAttachment = (attachment) => ({
   createdAt: attachment.createdAt
 });
 
-const mapChatMessage = (chatMessage) => ({
-  id: chatMessage.id,
-  message: chatMessage.message,
-  sender: chatMessage.sender,
-  senderRole: chatMessage.sender?.role || null,
-  timestamp: chatMessage.timestamp,
-  createdAt: chatMessage.timestamp,
-  consultationId: chatMessage.consultationId,
-  attachments: (chatMessage.attachments || []).map(mapAttachment)
+const buildAiBotSender = () => ({
+  id: AI_BOT_SYSTEM_ID,
+  name: 'Gemma AI',
+  role: 'assistant',
+  avatarUrl: AI_BOT_AVATAR_URL
 });
+
+const mapChatMessage = (chatMessage) => {
+  const isAiBotMessage = chatMessage.senderId === AI_BOT_SYSTEM_ID;
+
+  return {
+    id: chatMessage.id,
+    message: chatMessage.message,
+    sender: isAiBotMessage ? buildAiBotSender() : chatMessage.sender,
+    senderId: chatMessage.senderId,
+    senderRole: isAiBotMessage ? 'assistant' : chatMessage.sender?.role || null,
+    timestamp: chatMessage.timestamp,
+    createdAt: chatMessage.timestamp,
+    consultationId: chatMessage.consultationId,
+    attachments: (chatMessage.attachments || []).map(mapAttachment)
+  };
+};
+
+const getMessageSenderRole = (chatMessage) => (
+  chatMessage?.senderId === AI_BOT_SYSTEM_ID
+    ? 'assistant'
+    : chatMessage?.sender?.role || null
+);
 
 const buildConsultationSubject = (consultation) => {
   const scan = consultation.scan || {};
@@ -409,7 +429,7 @@ const getConsultationList = async (userId, role, filters = {}) => {
           ? {
             message: c.messages[0].message,
             createdAt: c.messages[0].timestamp,
-            senderRole: c.messages[0].sender?.role || null,
+            senderRole: getMessageSenderRole(c.messages[0]),
             attachments: (c.messages[0].attachments || []).map(mapAttachment)
           }
           : null,

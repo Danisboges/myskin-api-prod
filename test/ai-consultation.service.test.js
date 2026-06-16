@@ -6,7 +6,6 @@ const axios = require('axios');
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 process.env.MAINTENANCE_MODE_TEST_OVERRIDE = 'false';
 process.env.GEMMA_API_URL = process.env.GEMMA_API_URL || 'https://gemma.test/api/generate';
-delete process.env.AI_BOT_USER_ID;
 
 const prisma = require('../src/config/prisma');
 const aiConsultationService = require('../src/services/ai-consultation.service');
@@ -22,6 +21,7 @@ const created = {
 
 const originalAxiosPost = axios.post;
 let existingBotBeforeTests = null;
+let capturedGemmaRequest = null;
 
 const stamp = () => `${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
 
@@ -33,13 +33,16 @@ test.before(async () => {
 });
 
 test.beforeEach(() => {
-  delete process.env.AI_BOT_USER_ID;
-  axios.post = async () => ({
-    status: 200,
-    data: {
-      response: 'Ini penjelasan AI untuk hasil scan Anda.',
-    },
-  });
+  capturedGemmaRequest = null;
+  axios.post = async (...args) => {
+    capturedGemmaRequest = args;
+    return {
+      status: 200,
+      data: {
+        response: 'Ini penjelasan AI untuk hasil scan Anda.',
+      },
+    };
+  };
 });
 
 test.afterEach(() => {
@@ -188,4 +191,39 @@ test('sendAiMessage uses static Gemma AI system sender in a human doctor consult
   assert.equal(mappedAiMessage.sender.name, 'Gemma AI');
   assert.equal(mappedAiMessage.sender.role, 'assistant');
   assert.equal(mappedAiMessage.senderRole, 'assistant');
+
+  assert.ok(capturedGemmaRequest);
+  assert.equal(capturedGemmaRequest[0], process.env.GEMMA_API_URL);
+  assert.equal(capturedGemmaRequest[1].model, 'medgemma:4b');
+  assert.equal(capturedGemmaRequest[1].stream, true);
+  assert.equal(capturedGemmaRequest[1].options.num_predict, 50);
+  assert.equal(Object.hasOwn(capturedGemmaRequest[1], 'messages'), false);
+  assert.match(capturedGemmaRequest[1].prompt, /Assistant:$/);
+});
+
+test('sendAiMessage parses streamed Gemma response chunks', async () => {
+  const { patient, consultation } = await createConsultationFixture();
+  axios.post = async (...args) => {
+    capturedGemmaRequest = args;
+    return {
+      status: 200,
+      data: [
+        JSON.stringify({ response: 'Ini ' }),
+        JSON.stringify({ response: 'jawaban ' }),
+        JSON.stringify({ response: 'streaming.', done: true }),
+      ].join('\n'),
+    };
+  };
+
+  const aiMessage = await aiConsultationService.sendAiMessage(
+    patient.id,
+    consultation.id,
+    'Apa arti hasil scan saya?'
+  );
+
+  assert.equal(aiMessage.message, 'Ini jawaban streaming.');
+  assert.equal(aiMessage.senderId, AI_BOT_SYSTEM_ID);
+  assert.equal(capturedGemmaRequest[1].model, 'medgemma:4b');
+  assert.equal(capturedGemmaRequest[1].stream, true);
+  assert.equal(capturedGemmaRequest[1].options.num_predict, 50);
 });

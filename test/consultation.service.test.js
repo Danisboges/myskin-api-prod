@@ -8,11 +8,15 @@ const prisma = require('../src/config/prisma');
 const {
   createPrescription,
   getAiAnalysis,
+  getChatMessages,
   getConsultationList,
   initiateConsultation,
   markMessagesAsRead,
   sendMessage,
 } = require('../src/services/consultation.service');
+
+const AI_BOT_SYSTEM_ID = 'GEMMA_AI_BOT_SYSTEM';
+const AI_BOT_EMAIL = 'gemma.ai.system@myskin.local';
 
 const created = {
   userIds: [],
@@ -21,7 +25,16 @@ const created = {
   attachmentPaths: [],
 };
 
+let existingAiBotBeforeTests = null;
+
 const stamp = () => `${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+
+test.before(async () => {
+  existingAiBotBeforeTests = await prisma.user.findUnique({
+    where: { id: AI_BOT_SYSTEM_ID },
+    select: { id: true },
+  });
+});
 
 async function createUser(role, name) {
   const token = stamp();
@@ -98,6 +111,25 @@ async function createConsultationFixture() {
   return { patient, doctor, otherDoctor, scan, consultation };
 }
 
+async function ensureAiBotUser() {
+  return prisma.user.upsert({
+    where: { id: AI_BOT_SYSTEM_ID },
+    update: {
+      name: 'Gemma AI',
+      email: AI_BOT_EMAIL,
+      status: 'active',
+    },
+    create: {
+      id: AI_BOT_SYSTEM_ID,
+      name: 'Gemma AI',
+      email: AI_BOT_EMAIL,
+      password: await bcrypt.hash('GemmaSystemBotOnly2026!', 10),
+      role: 'doctor',
+      status: 'active',
+    },
+  });
+}
+
 test.after(async () => {
   for (const attachmentPath of created.attachmentPaths) {
     if (fs.existsSync(attachmentPath)) {
@@ -126,6 +158,12 @@ test.after(async () => {
   if (created.scanIds.length > 0) {
     await prisma.scan.deleteMany({
       where: { id: { in: created.scanIds } },
+    });
+  }
+
+  if (!existingAiBotBeforeTests) {
+    await prisma.user.deleteMany({
+      where: { id: AI_BOT_SYSTEM_ID },
     });
   }
 
@@ -261,6 +299,42 @@ test('sendMessage creates doctor notification when patient sends chat', async ()
 
   assert.ok(notification);
   assert.equal(notification.message, 'Dokter, saya ingin menanyakan hasil scan ini.');
+});
+
+test('shared consultation chat maps Gemma AI system messages as assistant', async () => {
+  const { patient, doctor, consultation } = await createConsultationFixture();
+  await ensureAiBotUser();
+
+  await prisma.chatMessage.create({
+    data: {
+      consultationId: consultation.id,
+      senderId: AI_BOT_SYSTEM_ID,
+      message: 'Saya bantu jelaskan hasil scan ini secara umum.',
+      timestamp: new Date(Date.now() + 1000),
+    },
+  });
+
+  const messages = await getChatMessages(consultation.id, doctor.id, {
+    page: 1,
+    limit: 10,
+  });
+  const aiMessage = messages.data.find((message) => message.senderId === AI_BOT_SYSTEM_ID);
+
+  assert.ok(aiMessage);
+  assert.equal(aiMessage.sender.name, 'Gemma AI');
+  assert.equal(aiMessage.sender.role, 'assistant');
+  assert.equal(aiMessage.senderRole, 'assistant');
+  assert.match(aiMessage.sender.avatarUrl, /dicebear\.com\/9\.x\/bottts-neutral\/svg/);
+
+  const list = await getConsultationList(patient.id, 'patient', {
+    page: 1,
+    limit: 10,
+  });
+  const item = list.data.find((entry) => entry.consultationId === consultation.id);
+
+  assert.ok(item);
+  assert.equal(item.lastMessage.message, 'Saya bantu jelaskan hasil scan ini secara umum.');
+  assert.equal(item.lastMessage.senderRole, 'assistant');
 });
 
 test('only assigned doctor can create prescriptions', async () => {
