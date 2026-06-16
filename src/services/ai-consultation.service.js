@@ -1,21 +1,10 @@
 const prisma = require('../config/prisma');
+const axios = require('axios');
 const { publishConsultationEvent } = require('../services/consultation-events.service');
 
 const AI_BOT_NAME = 'Gemma AI';
-const AI_MODEL = 'gemma2';
-
-const getOllamaClient = () => {
-  try {
-    const ollamaPackage = require('ollama');
-    return ollamaPackage.default || ollamaPackage;
-  } catch (error) {
-    if (error.code === 'MODULE_NOT_FOUND') {
-      throw new Error('AI chatbot service is unavailable: install the ollama npm package');
-    }
-
-    throw error;
-  }
-};
+const GEMMA_API_URL = process.env.GEMMA_API_URL?.trim() || '';
+const GEMMA_API_TIMEOUT_MS = Number(process.env.GEMMA_API_TIMEOUT_MS || 60000);
 
 const mapChatMessage = (chatMessage) => ({
   id: chatMessage.id,
@@ -90,6 +79,116 @@ const buildSystemPrompt = (scan = {}) => {
     '- Jika pasien menanyakan obat, tindakan invasif, atau keputusan klinis pasti, arahkan untuk konsultasi dokter.',
     '- Jawab ringkas, empatik, dan relevan dengan konteks scan di atas.'
   ].join('\n');
+};
+
+const buildGemmaPrompt = (systemPrompt, chatHistory) => {
+  const formattedHistory = chatHistory
+    .map((chatMessage) => {
+      const role = chatMessage.role === 'assistant' ? 'Assistant' : 'Patient';
+      return `${role}: ${chatMessage.content}`;
+    })
+    .join('\n');
+
+  return [
+    systemPrompt,
+    '',
+    'Riwayat percakapan:',
+    formattedHistory,
+    '',
+    'Assistant:'
+  ].join('\n');
+};
+
+const extractGemmaReply = (data) => {
+  if (typeof data === 'string') {
+    return data.trim();
+  }
+
+  if (!data || typeof data !== 'object') {
+    return '';
+  }
+
+  const candidates = [
+    data.response,
+    data.generated_text,
+    data.text,
+    data.output,
+    data.message?.content,
+    data.data?.response,
+    data.data?.generated_text,
+    data.data?.text,
+    data.data?.output,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      const reply = extractGemmaReply(item);
+      if (reply) {
+        return reply;
+      }
+    }
+  }
+
+  if (Array.isArray(data.data)) {
+    for (const item of data.data) {
+      const reply = extractGemmaReply(item);
+      if (reply) {
+        return reply;
+      }
+    }
+  }
+
+  return '';
+};
+
+const requestGemmaReply = async ({ systemPrompt, chatHistory }) => {
+  if (!GEMMA_API_URL) {
+    throw new Error('AI chatbot service is unavailable: GEMMA_API_URL is not configured');
+  }
+
+  const prompt = buildGemmaPrompt(systemPrompt, chatHistory);
+
+  try {
+    const response = await axios.post(
+      GEMMA_API_URL,
+      {
+        prompt,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...chatHistory,
+        ],
+        stream: false,
+      },
+      {
+        timeout: GEMMA_API_TIMEOUT_MS,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        validateStatus: () => true,
+      }
+    );
+
+    if (response.status < 200 || response.status >= 300) {
+      const detail = typeof response.data === 'string'
+        ? response.data
+        : response.data?.message || response.data?.error || JSON.stringify(response.data);
+      throw new Error(`Gemma API returned HTTP ${response.status}: ${detail}`);
+    }
+
+    return extractGemmaReply(response.data);
+  } catch (error) {
+    if (error.code === 'ECONNABORTED') {
+      throw new Error('AI chatbot service is unavailable: Gemma API request timed out');
+    }
+
+    throw new Error(`AI chatbot service is unavailable: ${error.message}`);
+  }
 };
 
 const getAiChatHistory = async (userId, consultationId) => {
@@ -169,15 +268,10 @@ const sendAiMessage = async (userId, consultationId, messageContent) => {
       content: chatMessage.message
     }));
 
-    const response = await getOllamaClient().chat({
-      model: AI_MODEL,
-      messages: [
-        { role: 'system', content: buildSystemPrompt(consultation.scan) },
-        ...chatHistory
-      ]
+    const aiReplyContent = await requestGemmaReply({
+      systemPrompt: buildSystemPrompt(consultation.scan),
+      chatHistory,
     });
-
-    const aiReplyContent = response?.message?.content?.trim();
 
     if (!aiReplyContent) {
       throw new Error('Gemma AI did not return a response');

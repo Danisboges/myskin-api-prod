@@ -94,6 +94,7 @@ JWT_SECRET
 CORS_ORIGINS
 FRONTEND_URL
 AI_BASE_URL atau AI_PREDICT_URL/AI_GRADCAM_URL jika fitur scan AI dipakai
+GEMMA_API_URL jika fitur chatbot dipakai
 SMTP_* jika fitur email dipakai
 ```
 

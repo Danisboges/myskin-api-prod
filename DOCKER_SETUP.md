@@ -97,28 +97,18 @@ docker compose down -v
 
 Gunakan `down -v` hanya jika ingin reset database Docker.
 
-## Ollama Chatbot
+## Gemma Chatbot
 
-Jika chatbot memakai Ollama di Windows host:
-
-1. Install Ollama di Windows.
-2. Jalankan:
-
-```powershell
-ollama pull gemma2
-ollama serve
-```
-
-3. Pastikan `.env.docker` berisi:
+Chatbot memakai Gemma API external, bukan Ollama lokal. Pastikan `.env.docker` berisi:
 
 ```env
-OLLAMA_HOST=http://host.docker.internal:11434
+GEMMA_API_URL=https://Danisboges-my-medgemma-space.hf.space/api/generate
 ```
 
-Jika endpoint chatbot masih gagal, cek apakah Ollama bisa diakses:
+Jika endpoint chatbot masih gagal, cek apakah API Gemma bisa diakses:
 
 ```bash
-docker compose exec api node -e "fetch('http://host.docker.internal:11434/api/tags').then(r=>console.log(r.status)).catch(console.error)"
+docker compose exec api node -e "fetch(process.env.GEMMA_API_URL).then(r=>console.log(r.status)).catch(console.error)"
 ```
 
 ## Troubleshooting
