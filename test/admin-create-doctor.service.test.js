@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const bcrypt = require("bcryptjs");
 
 process.env.ADMIN_NOTIFICATION_TEST_DISABLE = "true";
 
@@ -35,6 +36,43 @@ test.after(async () => {
   }
 
   await prisma.$disconnect();
+});
+
+test("admin createUser creates active admin without doctor or patient profile", async () => {
+  const token = stamp();
+
+  const result = await adminService.createUser({
+    fullName: "Admin Created Admin",
+    email: `admin.created.admin.${token}@example.com`,
+    role: "admin",
+    password: "Str0ng!Pass2026",
+  });
+
+  createdUserIds.push(result.data.userId);
+
+  assert.equal(result.data.id, result.data.userId);
+  assert.equal(result.data.fullName, "Admin Created Admin");
+  assert.equal(result.data.role, "admin");
+  assert.equal(result.data.status, "active");
+  assert.equal(result.data.doctorProfile, undefined);
+
+  const storedAdmin = await prisma.user.findUnique({
+    where: { id: result.data.userId },
+    include: {
+      doctorProfile: true,
+      patientProfile: true,
+    },
+  });
+
+  assert.equal(storedAdmin.role, "admin");
+  assert.equal(storedAdmin.status, "active");
+  assert.equal(storedAdmin.gender, null);
+  assert.equal(storedAdmin.phone, null);
+  assert.equal(storedAdmin.birthDate, null);
+  assert.equal(storedAdmin.doctorProfile, null);
+  assert.equal(storedAdmin.patientProfile, null);
+  assert.notEqual(storedAdmin.password, "Str0ng!Pass2026");
+  assert.equal(await bcrypt.compare("Str0ng!Pass2026", storedAdmin.password), true);
 });
 
 test("admin createUser stores clinicId and returns clinic fields for doctor", async () => {

@@ -4,13 +4,14 @@ const { getPasswordStrengthErrors } = require("../utils/password.util");
 const VALID_LOG_CATEGORIES = ["infrastructure", "ai_engine", "user_management", "security", "system"];
 const VALID_LOG_SEVERITIES = ["critical", "warning", "info"];
 const VALID_RETENTION_DAYS = [30, 90, 180, 365];
+const VALID_USER_STATUSES = ["active", "pending", "suspended", "inactive"];
 
 // Validator untuk Admin User Management
 
 const validateCreateUser = (data) => {
   const errors = {};
 
-  if (!data.fullName || data.fullName.trim().length === 0) {
+  if (!data.fullName || typeof data.fullName !== "string" || data.fullName.trim().length === 0) {
     errors.fullName = "Full name is required";
   }
 
@@ -23,8 +24,12 @@ const validateCreateUser = (data) => {
     errors.role = "Role must be admin, doctor, or patient";
   }
 
-  if (!data.gender || !["male", "female"].includes(data.gender)) {
+  if (data.gender !== undefined && data.gender !== "" && !["male", "female"].includes(data.gender)) {
     errors.gender = "Gender must be male or female";
+  }
+
+  if (data.status !== undefined && data.status !== "" && !VALID_USER_STATUSES.includes(data.status)) {
+    errors.status = "Status must be active, pending, suspended, or inactive";
   }
 
   const passwordErrors = getPasswordStrengthErrors(data.password, {
@@ -78,8 +83,7 @@ const validateUpdateUser = (data) => {
 };
 
 const validateUserStatus = (status) => {
-  const validStatuses = ["active", "pending", "suspended", "inactive"];
-  return validStatuses.includes(status) ? null : { status: "Invalid status" };
+  return VALID_USER_STATUSES.includes(status) ? null : { status: "Invalid status" };
 };
 
 const validateUserRole = (role) => {

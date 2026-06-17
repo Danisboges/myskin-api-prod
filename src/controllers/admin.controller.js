@@ -210,7 +210,11 @@ const createUser = async (req, res) => {
   try {
     const validationErrors = validateCreateUser(req.body);
     if (validationErrors) {
-      return res.status(400).json({ status: "error", errors: validationErrors });
+      return res.status(400).json({
+        status: "error",
+        message: "Invalid user payload",
+        errors: validationErrors
+      });
     }
 
     const result = await adminService.createUser({

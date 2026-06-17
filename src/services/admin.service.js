@@ -43,6 +43,16 @@ const formatUserForAdmin = (user) => ({
   licenseFile: user.doctorProfile?.licenseFile || null,
 });
 
+const VALID_CREATE_USER_STATUSES = new Set(["active", "pending", "suspended", "inactive"]);
+
+const resolveCreateUserStatus = (role, status) => {
+  if (typeof status === "string" && VALID_CREATE_USER_STATUSES.has(status)) {
+    return status;
+  }
+
+  return role === "admin" ? "active" : "pending";
+};
+
 const formatDoctorForAdmin = (doctor) => ({
   doctorId: doctor.id,
   userId: doctor.userId,
@@ -1041,6 +1051,11 @@ const getUserById = async (userId) => {
 };
 
 const createUser = async (userData) => {
+  const role = userData.role;
+  const normalizedGender = typeof userData.gender === "string" && userData.gender.trim()
+    ? userData.gender.trim().toLowerCase()
+    : null;
+
   if (userData.role === "doctor" && !userData.specialization) {
     const error = new Error("Specialization is required for doctor");
     error.status = 400;
@@ -1130,11 +1145,11 @@ const createUser = async (userData) => {
       name: userData.fullName,
       email: normalizedEmail,
       password: hashedPassword,
-      role: userData.role,
-      gender: userData.gender.toLowerCase(),
-      phone: userData.phoneNumber,
+      role,
+      gender: normalizedGender,
+      phone: userData.phoneNumber || null,
       birthDate: userData.birthDate ? new Date(userData.birthDate) : null,
-      status: "pending",
+      status: resolveCreateUserStatus(role, userData.status),
       ...(doctorProfileData && {
         doctorProfile: {
           create: doctorProfileData,
@@ -1185,6 +1200,7 @@ const createUser = async (userData) => {
   return {
     message: "User created successfully",
     data: {
+      id: user.id,
       userId: user.id,
       fullName: user.name,
       role: user.role,

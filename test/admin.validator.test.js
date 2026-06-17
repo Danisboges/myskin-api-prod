@@ -30,6 +30,17 @@ test('validateCreateUser accepts valid user payload', () => {
   assert.equal(result, null);
 });
 
+test('validateCreateUser accepts admin payload without optional profile fields', () => {
+  const result = validateCreateUser({
+    fullName: 'Platform Admin',
+    email: 'platform.admin@example.com',
+    role: 'admin',
+    password: 'Str0ng!Pass2026',
+  });
+
+  assert.equal(result, null);
+});
+
 test('validateCreateUser returns expected errors for invalid payload', () => {
   const result = validateCreateUser({
     fullName: ' ',
