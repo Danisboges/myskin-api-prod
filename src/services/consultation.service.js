@@ -11,6 +11,7 @@ const { publishConsultationEvent } = require('./consultation-events.service');
 const systemLogService = require('./system-log.service');
 const emailService = require('./email.service');
 const doctorNotificationService = require('./doctor-notification.service');
+const { assertNoActivePatientConsultation } = require('./active-consultation-guard.service');
 
 const CHAT_ATTACHMENT_DIR = path.join(__dirname, '../../uploads/chat-attachments');
 const CHAT_ATTACHMENT_URL_PREFIX = '/uploads/chat-attachments';
@@ -167,6 +168,8 @@ const buildDateRangeFilter = (startDate, endDate) => {
  */
 const initiateConsultation = async (userId, doctorId, scanId, initialMessage) => {
   try {
+    await assertNoActivePatientConsultation(userId);
+
     // 1. Validasi bahwa user adalah patient
     const patientProfile = await prisma.patientProfile.findUnique({
       where: { userId },
@@ -275,7 +278,15 @@ const initiateConsultation = async (userId, doctorId, scanId, initialMessage) =>
       message: 'Consultation initiated successfully'
     };
   } catch (error) {
-    throw new Error(`Failed to initiate consultation: ${error.message}`);
+    if (error.code === 'ACTIVE_CONSULTATION_EXISTS') {
+      throw error;
+    }
+
+    const wrappedError = new Error(`Failed to initiate consultation: ${error.message}`);
+    wrappedError.status = error.status;
+    wrappedError.code = error.code;
+    wrappedError.data = error.data;
+    throw wrappedError;
   }
 };
 

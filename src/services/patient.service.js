@@ -14,6 +14,7 @@ const {
 } = require('../utils/email.util');
 const { buildAiRequestHeaders, getAiModelConfig } = require('../utils/ai-model.util');
 const doctorNotificationService = require('./doctor-notification.service');
+const { assertNoActivePatientConsultation } = require('./active-consultation-guard.service');
 
 const MIN_SCAN_COMPLAINT_NON_SPACE_LENGTH = 10;
 const countNonWhitespaceCharacters = (value = '') => String(value).replace(/\s/g, '').length;
@@ -1313,6 +1314,7 @@ const submitVerificationRequest = async (userId, payload) => {
   timing.skip('consultation_creation', 'verification requests never create consultations');
   timing.skip('chatbot_ai_call', 'verification requests never trigger chatbot or LLM services');
   timing.skip('report_update', 'verification requests do not generate or update reports');
+  await timing.step('active_consultation_guard', () => assertNoActivePatientConsultation(userId));
 
   const patient = await timing.step('load_patient_profile', () => prisma.patientProfile.findUnique({
     where: { userId }

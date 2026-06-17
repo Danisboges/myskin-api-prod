@@ -15,6 +15,7 @@ const created = {
   patientIds: [],
   requestIds: [],
   scanIds: [],
+  consultationIds: [],
 };
 
 const stamp = () => `${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
@@ -112,6 +113,15 @@ const createDoctor = async ({ status = "active", verificationStatus = "verified"
 };
 
 test.after(async () => {
+  if (created.consultationIds.length > 0) {
+    await prisma.chatMessage.deleteMany({
+      where: { consultationId: { in: created.consultationIds } },
+    });
+    await prisma.consultation.deleteMany({
+      where: { id: { in: created.consultationIds } },
+    });
+  }
+
   if (created.patientIds.length > 0) {
     await prisma.patientNotification.deleteMany({
       where: { patientId: { in: created.patientIds } },
@@ -290,6 +300,75 @@ test("POST /api/v1/patient/verification-requests accepts patientScanId UUID and 
 
   assert.equal(consultationCount, 0);
   assert.equal(chatMessageCount, 0);
+});
+
+test("POST /api/v1/patient/verification-requests rejects when patient has active consultation", async () => {
+  const { user, token } = await createPatient();
+  const activeDoctor = await createDoctor({ verificationStatus: "verified" });
+  const requestedDoctor = await createDoctor({ verificationStatus: "verified" });
+  const activeScan = await prisma.scan.create({
+    data: {
+      patientId: user.patientProfile.id,
+      imageUrl: "/uploads/test-active-consultation.jpg",
+      complaint: "Active consultation scan",
+      bodySite: "arm",
+    },
+  });
+  const requestedScan = await prisma.scan.create({
+    data: {
+      patientId: user.patientProfile.id,
+      imageUrl: "/uploads/test-blocked-verification.jpg",
+      complaint: "New request should be blocked",
+      bodySite: "back",
+    },
+  });
+  created.scanIds.push(activeScan.id, requestedScan.id);
+
+  const activeConsultation = await prisma.consultation.create({
+    data: {
+      scanId: activeScan.id,
+      patientId: user.id,
+      doctorId: activeDoctor.id,
+      status: "OPEN",
+    },
+  });
+  created.consultationIds.push(activeConsultation.id);
+
+  const res = await requestJson({
+    method: "POST",
+    path: "/api/v1/patient/verification-requests",
+    token,
+    body: {
+      doctorUserId: requestedDoctor.id,
+      doctorId: requestedDoctor.doctorProfile.id,
+      scanId: requestedScan.id,
+      patientScanId: requestedScan.id,
+      source: "verification_request",
+      createConsultation: false,
+      triggerChatbot: false,
+      autoStartChatbot: false,
+    },
+  });
+
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.body.status, "error");
+  assert.equal(res.body.code, "ACTIVE_CONSULTATION_EXISTS");
+  assert.equal(
+    res.body.message,
+    "You still have an active consultation. Please wait until the doctor closes the case before requesting another doctor."
+  );
+  assert.equal(res.body.data.consultationId, activeConsultation.id);
+  assert.equal(res.body.data.doctorId, activeDoctor.id);
+  assert.equal(res.body.data.doctorName, activeDoctor.name);
+  assert.equal(res.body.data.status, "OPEN");
+
+  const blockedRequestCount = await prisma.verificationRequest.count({
+    where: {
+      patientId: user.patientProfile.id,
+      scanId: requestedScan.id,
+    },
+  });
+  assert.equal(blockedRequestCount, 0);
 });
 
 test("POST /api/v1/patient/verification-requests creates a new request for a new scan despite existing pending request", async () => {

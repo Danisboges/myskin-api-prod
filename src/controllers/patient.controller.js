@@ -613,10 +613,19 @@ const submitVerificationRequest = async (req, res) => {
     });
   } catch (err) {
     console.error("Error submitVerificationRequest:", err.message);
-    res.status(err.status || 400).json({
+    const response = {
       status: "error",
       message: err.message
-    });
+    };
+
+    if (err.code) {
+      response.code = err.code;
+    }
+    if (err.data) {
+      response.data = err.data;
+    }
+
+    res.status(err.status || 400).json(response);
   }
 };
 

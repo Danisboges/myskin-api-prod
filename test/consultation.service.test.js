@@ -224,6 +224,84 @@ test('initiateConsultation accepts doctor User.id from available doctors respons
   assert.equal(consultation.doctorId, doctor.id);
 });
 
+test('initiateConsultation rejects when patient has active consultation', async () => {
+  const { patient, doctor, otherDoctor, consultation } = await createConsultationFixture();
+  const scan = await prisma.scan.create({
+    data: {
+      patientId: patient.patientProfile.id,
+      imageUrl: '/uploads/test-lesion-active-blocked.jpg',
+      complaint: 'Second consultation should be blocked',
+      bodySite: 'neck',
+      isAnalyzed: true,
+      aiPrediction: 'Benign',
+      aiConfidence: 0.9,
+      aiDetails: 'No concerning pattern detected',
+      analyzeCompletedAt: new Date(),
+    },
+  });
+  created.scanIds.push(scan.id);
+
+  try {
+    await initiateConsultation(
+      patient.id,
+      otherDoctor.id,
+      scan.scanId,
+      'Saya ingin konsultasi dengan dokter lain.'
+    );
+    assert.fail('Expected active consultation guard to reject');
+  } catch (error) {
+    assert.equal(error.status, 409);
+    assert.equal(error.code, 'ACTIVE_CONSULTATION_EXISTS');
+    assert.match(error.message, /You still have an active consultation/);
+    assert.deepEqual(error.data, {
+      consultationId: consultation.id,
+      doctorId: doctor.id,
+      doctorName: doctor.name,
+      status: 'OPEN',
+    });
+  }
+
+  const blockedConsultationCount = await prisma.consultation.count({
+    where: { scanId: scan.id },
+  });
+  assert.equal(blockedConsultationCount, 0);
+});
+
+test('initiateConsultation allows new request after existing consultation is closed', async () => {
+  const { patient, otherDoctor, consultation } = await createConsultationFixture();
+  await prisma.consultation.update({
+    where: { id: consultation.id },
+    data: { status: 'CLOSED' },
+  });
+
+  const scan = await prisma.scan.create({
+    data: {
+      patientId: patient.patientProfile.id,
+      imageUrl: '/uploads/test-lesion-after-closed.jpg',
+      complaint: 'New consultation after closed case',
+      bodySite: 'face',
+      isAnalyzed: true,
+      aiPrediction: 'Benign',
+      aiConfidence: 0.91,
+      aiDetails: 'No concerning pattern detected',
+      analyzeCompletedAt: new Date(),
+    },
+  });
+  created.scanIds.push(scan.id);
+
+  const result = await initiateConsultation(
+    patient.id,
+    otherDoctor.id,
+    scan.scanId,
+    'Case sebelumnya sudah ditutup, saya ingin konsultasi baru.'
+  );
+  created.consultationIds.push(result.id);
+
+  assert.equal(result.status, 'OPEN');
+  assert.equal(result.doctor.id, otherDoctor.id);
+  assert.equal(result.scan.scanId, scan.scanId);
+});
+
 test('markMessagesAsRead creates read receipts for unread participant messages', async () => {
   const { doctor, consultation } = await createConsultationFixture();
 

@@ -56,6 +56,15 @@ const initiateConsultation = async (req, res) => {
   } catch (error) {
     console.error('Error initiating consultation:', error.message);
 
+    if (error.code === 'ACTIVE_CONSULTATION_EXISTS') {
+      return res.status(error.status || 409).json({
+        status: 'error',
+        code: error.code,
+        message: error.message,
+        data: error.data
+      });
+    }
+
     // Handle specific errors
     if (
       error.message.includes('Patient profile not found') ||
