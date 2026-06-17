@@ -18,6 +18,44 @@ const doctorNotificationService = require('./doctor-notification.service');
 const MIN_SCAN_COMPLAINT_NON_SPACE_LENGTH = 10;
 const countNonWhitespaceCharacters = (value = '') => String(value).replace(/\s/g, '').length;
 
+const getDurationMs = (startedAt) => Number(process.hrtime.bigint() - startedAt) / 1e6;
+
+const createVerificationRequestTiming = () => {
+  const requestStartedAt = process.hrtime.bigint();
+  const steps = [];
+
+  const record = (step, startedAt, extra = {}) => {
+    steps.push({
+      step,
+      durationMs: Number(getDurationMs(startedAt).toFixed(2)),
+      ...extra,
+    });
+  };
+
+  return {
+    async step(step, callback) {
+      const startedAt = process.hrtime.bigint();
+      try {
+        return await callback();
+      } finally {
+        record(step, startedAt);
+      }
+    },
+    skip(step, reason) {
+      record(step, process.hrtime.bigint(), { skipped: true, reason });
+    },
+    log(context = {}) {
+      console.info('[patient.verification-request.timing]', {
+        ...context,
+        totalDurationMs: Number(getDurationMs(requestStartedAt).toFixed(2)),
+        steps,
+      });
+    },
+  };
+};
+
+const isTruthyFlag = (value) => value === true || value === 'true';
+
 const createHttpError = (message, status = 400) => {
   const error = new Error(message);
   error.status = status;
@@ -1248,10 +1286,16 @@ const assertPatientScanExists = async (patientId, scanId) => {
 };
 
 const submitVerificationRequest = async (userId, payload) => {
+  const timing = createVerificationRequestTiming();
   const requestPayload = typeof payload === 'string' ? { message: payload } : (payload || {});
   const message = requestPayload.message ?? requestPayload.initialMessage ?? 'Please review this scan with a doctor.';
   const scanIdentifier = requestPayload.patientScanId ?? requestPayload.scanId;
   const doctorIdentifier = requestPayload.doctorId ?? requestPayload.doctorUserId;
+  const ignoredSideEffectFlags = {
+    createConsultation: isTruthyFlag(requestPayload.createConsultation),
+    triggerChatbot: isTruthyFlag(requestPayload.triggerChatbot),
+    autoStartChatbot: isTruthyFlag(requestPayload.autoStartChatbot),
+  };
 
   console.log("Create verification body:", requestPayload);
 
@@ -1259,29 +1303,40 @@ const submitVerificationRequest = async (userId, payload) => {
     throw createPatientHttpError('Message must be at least 5 characters');
   }
 
-  const patient = await prisma.patientProfile.findUnique({
+  if (Object.values(ignoredSideEffectFlags).some(Boolean)) {
+    console.warn('[patient.verification-request] Ignoring unsupported side-effect flags', {
+      userId,
+      ...ignoredSideEffectFlags,
+    });
+  }
+
+  timing.skip('consultation_creation', 'verification requests never create consultations');
+  timing.skip('chatbot_ai_call', 'verification requests never trigger chatbot or LLM services');
+  timing.skip('report_update', 'verification requests do not generate or update reports');
+
+  const patient = await timing.step('load_patient_profile', () => prisma.patientProfile.findUnique({
     where: { userId }
-  });
+  }));
 
   if (!patient) {
     throw new Error('Patient profile not found');
   }
 
-  const scan = await assertPatientScanExists(patient.id, scanIdentifier);
+  const scan = await timing.step('resolve_patient_scan', () => assertPatientScanExists(patient.id, scanIdentifier));
   console.log("Resolved patientScan:", scan?.id, scan?.scanId);
-  const doctor = await findAvailableDoctor(doctorIdentifier);
+  const doctor = await timing.step('assign_doctor', () => findAvailableDoctor(doctorIdentifier));
 
   if (doctorIdentifier && !doctor) {
     throw createPatientHttpError('Selected doctor is not available');
   }
 
   if (!scan) {
-    const existingRequest = await prisma.verificationRequest.findFirst({
+    const existingRequest = await timing.step('check_duplicate_pending_request', () => prisma.verificationRequest.findFirst({
       where: {
         patientId: patient.id,
         status: 'pending'
       }
-    });
+    }));
 
     if (existingRequest) {
       throw new Error('You already have a pending verification request');
@@ -1290,7 +1345,7 @@ const submitVerificationRequest = async (userId, payload) => {
 
   const requestId = `VER-${Date.now()}`;
 
-  const verificationRequest = await prisma.verificationRequest.create({
+  const verificationRequest = await timing.step('create_verification_request', () => prisma.verificationRequest.create({
     data: {
       requestId,
       patientId: patient.id,
@@ -1303,25 +1358,49 @@ const submitVerificationRequest = async (userId, payload) => {
         assignedDoctorName: doctor.user.name,
       }),
     }
-  });
+  }));
   console.log("Created verification request:", verificationRequest.id, verificationRequest.scanId);
 
   // Create notification untuk patient
-  await createPatientNotification(
+  await timing.step('patient_notification', () => createPatientNotification(
     patient.id,
     'Verification Request Submitted',
     'Your request for doctor verification has been submitted. You will be notified once a doctor accepts.',
     'verification_alert'
-  );
+  ));
 
   if (doctor) {
-    await createDoctorNotification(
-      doctor.id,
-      'New Verification Request',
-      `A patient submitted a verification request${scan ? ` for scan ${scan.scanId}` : ''}.`,
-      'verification_alert'
-    );
+    Promise.resolve()
+      .then(async () => {
+        const startedAt = process.hrtime.bigint();
+        await createDoctorNotification(
+          doctor.id,
+          'New Verification Request',
+          `A patient submitted a verification request${scan ? ` for scan ${scan.scanId}` : ''}.`,
+          'verification_alert'
+        );
+        console.info('[patient.verification-request.background-timing]', {
+          requestId: verificationRequest.requestId,
+          step: 'doctor_notification',
+          durationMs: Number(getDurationMs(startedAt).toFixed(2)),
+        });
+      })
+      .catch((error) => {
+        console.error('[patient.verification-request] Doctor notification failed:', error.message);
+      });
+  } else {
+    timing.skip('doctor_notification', 'no doctor selected');
   }
+
+  timing.log({
+    requestId: verificationRequest.requestId,
+    patientId: patient.id,
+    doctorProfileId: doctor?.id || null,
+    scanId: scan?.id || null,
+    createConsultationRequested: ignoredSideEffectFlags.createConsultation,
+    triggerChatbotRequested: ignoredSideEffectFlags.triggerChatbot,
+    autoStartChatbotRequested: ignoredSideEffectFlags.autoStartChatbot,
+  });
 
   return {
     requestId: verificationRequest.requestId,

@@ -254,6 +254,10 @@ test("POST /api/v1/patient/verification-requests accepts patientScanId UUID and 
       doctorId: doctor.doctorProfile.id,
       scanId: scan.id,
       patientScanId: scan.id,
+      source: "verification_request",
+      createConsultation: false,
+      triggerChatbot: false,
+      autoStartChatbot: false,
     },
   });
 
@@ -272,6 +276,20 @@ test("POST /api/v1/patient/verification-requests accepts patientScanId UUID and 
   assert.equal(request.scanId, scan.id);
   assert.equal(request.assignedDoctorId, doctor.doctorProfile.id);
   assert.equal(request.message, "Please review this scan with a doctor.");
+
+  const consultationCount = await prisma.consultation.count({
+    where: { scanId: scan.id },
+  });
+  const chatMessageCount = await prisma.chatMessage.count({
+    where: {
+      consultation: {
+        scanId: scan.id,
+      },
+    },
+  });
+
+  assert.equal(consultationCount, 0);
+  assert.equal(chatMessageCount, 0);
 });
 
 test("POST /api/v1/patient/verification-requests creates a new request for a new scan despite existing pending request", async () => {
